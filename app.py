@@ -11,7 +11,7 @@ app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 # 請將 你的真實密碼 替換為你的 Supabase 資料庫真實密碼
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
-    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+    "postgresql://postgres.gutyrssxtpuxndflkceq:你的真實密碼@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 def get_db_connection():
@@ -24,12 +24,24 @@ def init_db():
         cursor = conn.cursor()
 
         cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS suppliers (supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, contact_info TEXT, payment_terms TEXT, bank_info TEXT)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS customers (customer_code TEXT PRIMARY KEY, customer_name TEXT NOT NULL, tax_id TEXT, contact_info TEXT, payment_terms TEXT)")
+        
+        # 供應商與客戶資料表新增 address (地址) 欄位
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS suppliers (
+                supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, 
+                contact_info TEXT, payment_terms TEXT, bank_info TEXT, address TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS customers (
+                customer_code TEXT PRIMARY KEY, customer_name TEXT NOT NULL, tax_id TEXT, 
+                contact_info TEXT, payment_terms TEXT, address TEXT
+            )
+        """)
+        
         cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id SERIAL PRIMARY KEY, warehouse_name TEXT UNIQUE NOT NULL)")
         cursor.execute("CREATE TABLE IF NOT EXISTS inventory_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, safety_stock INTEGER DEFAULT 0, note TEXT)")
         
-        # 員工資料表增加 bank_name (銀行名稱) 與 bank_account (匯款帳號) 欄位
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 emp_id TEXT PRIMARY KEY, emp_name TEXT NOT NULL, department TEXT, title TEXT, 
@@ -182,7 +194,7 @@ def init_db():
             )
         """)
 
-        # 自動建立或強制更新使用者帳號密碼（修改密碼後會自動同步更新）
+        # 自動建立或強制更新使用者帳號密碼
         default_users = [
             ("EMP01", "黃詠甯", "0320", "會計主管"),
             ("EMP02", "江婉秀", "0510", "門市經辦"),
@@ -203,9 +215,9 @@ def init_db():
 
         cursor.execute("SELECT COUNT(*) FROM customers")
         if cursor.fetchone()["count"] == 0:
-            cursor.executemany("INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms) VALUES (%s, %s, %s, %s, %s)", [
-                ("C001", "王小明", "11223344", "0912-345678", "月結30天"),
-                ("C002", "林美華", "55667788", "0922-888999", "月結30天")
+            cursor.executemany("INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms, address) VALUES (%s, %s, %s, %s, %s, %s)", [
+                ("C001", "王小明", "11223344", "0912-345678", "月結30天", "新北市板橋區中山路一段1號"),
+                ("C002", "林美華", "55667788", "0922-888999", "月結30天", "台北市信義區市府路45號")
             ])
 
         cursor.execute("SELECT COUNT(*) FROM employees")
@@ -230,7 +242,6 @@ init_db()
 def index():
     if "user_id" not in session:
         return redirect(url_for("login_page"))
-    # 判斷是否為會計人員 (EMP01, EMP02 或 admin)
     is_accountant = session["user_id"] in ["EMP01", "EMP02", "admin"]
     return render_template_string(MAIN_HTML, user_name=session["user_name"], user_id=session["user_id"], is_accountant=is_accountant)
 
@@ -287,7 +298,7 @@ def get_customer(c_id):
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
 
-# --- 客戶建立 CRUD API ---
+# --- 客戶建立 CRUD API (支援地址) ---
 @app.route("/api/customers/list")
 def api_get_customers():
     conn = get_db_connection()
@@ -306,15 +317,16 @@ def api_save_customer():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms, address)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (customer_code) DO UPDATE 
             SET customer_name = EXCLUDED.customer_name, 
                 tax_id = EXCLUDED.tax_id, 
                 contact_info = EXCLUDED.contact_info, 
-                payment_terms = EXCLUDED.payment_terms
+                payment_terms = EXCLUDED.payment_terms,
+                address = EXCLUDED.address
         """, (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
-              data.get("contact_info"), data.get("payment_terms")))
+              data.get("contact_info"), data.get("payment_terms"), data.get("address")))
         conn.commit()
         cursor.close()
         conn.close()
@@ -335,7 +347,7 @@ def api_delete_customer(c_code):
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 
-# --- 員工與薪資 CRUD API (含匯款銀行與帳號) ---
+# --- 員工與薪資 CRUD API ---
 @app.route("/api/employees/list")
 def get_employees():
     conn = get_db_connection()
@@ -984,7 +996,7 @@ def get_finance_summary():
     })
 
 
-# --- 供應商管理頁面 ---
+# --- 供應商管理頁面 (含地址欄位) ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
@@ -1001,9 +1013,9 @@ def add_supplier():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO suppliers VALUES (%s,%s,%s,%s,%s,%s)",
+        cursor.execute("INSERT INTO suppliers (supplier_code, supplier_name, tax_id, contact_info, payment_terms, bank_info, address) VALUES (%s,%s,%s,%s,%s,%s,%s)",
             (request.form["supplier_code"], request.form["supplier_name"], request.form["tax_id"],
-             request.form["contact_info"], request.form["payment_terms"], request.form["bank_info"]))
+             request.form["contact_info"], request.form["payment_terms"], request.form["bank_info"], request.form["address"]))
         conn.commit()
         cursor.close()
         conn.close()
@@ -1015,9 +1027,9 @@ def edit_supplier(code):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE suppliers SET supplier_name=%s, tax_id=%s, contact_info=%s, payment_terms=%s, bank_info=%s WHERE supplier_code=%s",
+        cursor.execute("UPDATE suppliers SET supplier_name=%s, tax_id=%s, contact_info=%s, payment_terms=%s, bank_info=%s, address=%s WHERE supplier_code=%s",
             (request.form["supplier_name"], request.form["tax_id"], request.form["contact_info"],
-             request.form["payment_terms"], request.form["bank_info"], code))
+             request.form["payment_terms"], request.form["bank_info"], request.form["address"], code))
         conn.commit()
         cursor.close()
         conn.close()
@@ -1392,11 +1404,11 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 6. 客戶建立系統 -->
+  <!-- 6. 客戶建立系統 (含地址) -->
   <div id="customerView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📇 客戶資料建檔與維護（新增或修改）</h6>
+        <h6 class="fw-bold text-primary mb-2">📇 客戶資料建檔與維護（含地址）</h6>
         <form id="customerForm" onsubmit="handleCustomerSave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">客戶代號 *</label><input type="text" id="custCode" class="form-control form-control-sm" placeholder="例: C004" required></div>
@@ -1405,8 +1417,9 @@ MAIN_HTML = """
             <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="custPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
           </div>
           <div class="row g-2 mt-2">
-            <div class="col-6"><label class="form-label">付款條件</label><input type="text" id="custTerms" class="form-control form-control-sm" value="月結30天"></div>
-            <div class="col-6 d-flex align-items-end gap-1">
+            <div class="col-3"><label class="form-label">付款條件</label><input type="text" id="custTerms" class="form-control form-control-sm" value="月結30天"></div>
+            <div class="col-6"><label class="form-label text-primary">客戶地址</label><input type="text" id="custAddress" class="form-control form-control-sm" placeholder="完整通訊地址"></div>
+            <div class="col-3 d-flex align-items-end gap-1">
               <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存客戶</button>
               <button type="button" class="btn btn-secondary btn-sm" onclick="resetCustForm()">重設</button>
             </div>
@@ -1419,7 +1432,7 @@ MAIN_HTML = """
         <button class="btn-query btn-sm" onclick="loadCustomers()">🔄 重新整理</button>
       </div>
       <table class="items-table">
-        <thead><tr><th>客戶代號</th><th>客戶名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th class="no-print text-center">操作</th></tr></thead>
+        <thead><tr><th>客戶代號</th><th>客戶名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th>客戶地址</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="custTableBody"></tbody>
       </table>
     </div>
@@ -1566,7 +1579,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 11. 人事名冊 (HR - 含匯款銀行與帳號) -->
+  <!-- 11. 人事名冊 (HR) -->
   <div id="hrView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
@@ -1606,7 +1619,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 12. 薪資發放系統 (Payroll - 僅會計可用) -->
+  <!-- 12. 薪資發放系統 (Payroll) -->
   <div id="payrollView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
@@ -2019,7 +2032,6 @@ MAIN_HTML = """
 
   function switchTab(tab) {
     currentTab = tab;
-    // 檢查權限是否為會計
     const isAccountant = {{ 'true' if is_accountant else 'false' }};
     const accountantTabs = ['ap', 'apPro', 'ar', 'arPro', 'printCenter', 'finance', 'payroll'];
     if (accountantTabs.includes(tab) && !isAccountant) {
@@ -2481,12 +2493,12 @@ MAIN_HTML = """
     document.getElementById('invSku').readOnly = false;
   }
 
-  // 客戶建立管理 (Customer Master CRUD)
+  // 客戶建立管理 (含地址 CRUD)
   function loadCustomers() {
     fetch('/api/customers/list').then(r => r.json()).then(data => {
       cachedCustomers = data || [];
       const tb = document.getElementById('custTableBody'); tb.innerHTML = '';
-      if (!cachedCustomers.length) { tb.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-muted">尚無客戶資料</td></tr>`; return; }
+      if (!cachedCustomers.length) { tb.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-muted">尚無客戶資料</td></tr>`; return; }
       cachedCustomers.forEach(c => {
         tb.innerHTML += `<tr>
           <td><strong>${c.customer_code}</strong></td>
@@ -2494,6 +2506,7 @@ MAIN_HTML = """
           <td>${c.tax_id||'-'}</td>
           <td>${c.contact_info||'-'}</td>
           <td>${c.payment_terms||'月結30天'}</td>
+          <td><span class="text-primary">${c.address||'未填地址'}</span></td>
           <td class="text-center no-print">
             <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editCustomer(${JSON.stringify(c)})'>✏️ 修改</button>
             <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteCustomer('${c.customer_code}')">🗑️ 刪除</button>
@@ -2510,7 +2523,8 @@ MAIN_HTML = """
       customer_name: document.getElementById('custName').value.trim(),
       tax_id: document.getElementById('custTaxId').value.trim(),
       contact_info: document.getElementById('custPhone').value.trim(),
-      payment_terms: document.getElementById('custTerms').value.trim()
+      payment_terms: document.getElementById('custTerms').value.trim(),
+      address: document.getElementById('custAddress').value.trim()
     };
     fetch('/api/customers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json()).then(res => {
@@ -2526,6 +2540,7 @@ MAIN_HTML = """
     document.getElementById('custTaxId').value = c.tax_id || '';
     document.getElementById('custPhone').value = c.contact_info || '';
     document.getElementById('custTerms').value = c.payment_terms || '月結30天';
+    document.getElementById('custAddress').value = c.address || '';
     window.scrollTo({top: 0, behavior: 'smooth'});
   }
 
@@ -2772,7 +2787,7 @@ MAIN_HTML = """
     }
   }
 
-  // 人事名冊 (含匯款帳號)
+  // 人事名冊
   function loadEmployees() {
     fetch('/api/employees/list').then(r => r.json()).then(data => {
       cachedEmployees = data || [];
@@ -3390,14 +3405,15 @@ SUPPLIERS_HTML = """
         <div class="row">
             <div class="col-md-4 mb-4">
                 <div class="card shadow-sm p-4">
-                    <h4 class="mb-3 text-primary"><i class="fa-solid fa-user-plus me-2"></i>新增供應商</h4>
+                    <h4 class="mb-3 text-primary"><i class="fa-solid fa-user-plus me-2"></i>新增供應商 (含地址)</h4>
                     <form action="{{ url_for('add_supplier') }}" method="POST">
                         <div class="mb-2"><label class="form-label">供應商代號</label><input type="text" class="form-control" name="supplier_code" required></div>
                         <div class="mb-2"><label class="form-label">供應商名稱</label><input type="text" class="form-control" name="supplier_name" required></div>
                         <div class="mb-2"><label class="form-label">統一編號</label><input type="text" class="form-control" name="tax_id"></div>
                         <div class="mb-2"><label class="form-label">聯絡人</label><input type="text" class="form-control" name="contact_info"></div>
                         <div class="mb-2"><label class="form-label">付款條件</label><input type="text" class="form-control" name="payment_terms" value="月結30天"></div>
-                        <div class="mb-3"><label class="form-label">銀行資訊</label><input type="text" class="form-control" name="bank_info"></div>
+                        <div class="mb-2"><label class="form-label">銀行資訊</label><input type="text" class="form-control" name="bank_info"></div>
+                        <div class="mb-3"><label class="form-label text-primary">供應商地址</label><input type="text" class="form-control" name="address" placeholder="公司地址"></div>
                         <button type="submit" class="btn btn-dark w-100">儲存供應商</button>
                     </form>
                 </div>
@@ -3409,11 +3425,11 @@ SUPPLIERS_HTML = """
                         <button onclick="window.print()" class="btn btn-outline-secondary btn-sm no-print">列印清單</button>
                     </div>
                     <table class="table table-hover align-middle">
-                        <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>統編</th><th>聯絡人</th><th>付款條件</th><th class="text-center no-print">操作</th></tr></thead>
+                        <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>統編</th><th>聯絡人</th><th>付款條件</th><th>地址</th><th class="text-center no-print">操作</th></tr></thead>
                         <tbody>
                             {% for s in suppliers %}
                             <tr>
-                                <td>{{ s.supplier_code }}</td><td><strong>{{ s.supplier_name }}</strong></td><td>{{ s.tax_id or '-' }}</td><td>{{ s.contact_info or '-' }}</td><td>{{ s.payment_terms or '-' }}</td>
+                                <td>{{ s.supplier_code }}</td><td><strong>{{ s.supplier_name }}</strong></td><td>{{ s.tax_id or '-' }}</td><td>{{ s.contact_info or '-' }}</td><td>{{ s.payment_terms or '-' }}</td><td>{{ s.address or '-' }}</td>
                                 <td class="text-center no-print"><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ s.supplier_code }}"><i class="fa-solid fa-pen-to-square"></i></button></td>
                             </tr>
                             <div class="modal fade" id="editModal{{ s.supplier_code }}" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-dark text-white"><h5 class="modal-title">修改供應商</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
@@ -3424,6 +3440,7 @@ SUPPLIERS_HTML = """
                                 <div class="mb-2"><label>聯絡人</label><input type="text" class="form-control" name="contact_info" value="{{ s.contact_info or '' }}"></div>
                                 <div class="mb-2"><label>付款條件</label><input type="text" class="form-control" name="payment_terms" value="{{ s.payment_terms or '' }}"></div>
                                 <div class="mb-2"><label>銀行</label><input type="text" class="form-control" name="bank_info" value="{{ s.bank_info or '' }}"></div>
+                                <div class="mb-2"><label>地址</label><input type="text" class="form-control" name="address" value="{{ s.address or '' }}"></div>
                             </div><div class="modal-footer"><button type="submit" class="btn btn-primary btn-sm">儲存變更</button></div></form></div></div></div>
                             {% endfor %}
                         </tbody>
