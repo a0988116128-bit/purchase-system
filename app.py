@@ -1,12 +1,12 @@
-
-    from datetime import datetime
+from datetime import datetime
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
 import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_ultimate_system_2026"
+app.secret_key = "pezang_perfect_system_2026_v2"
 
+# 自動判斷資料庫路徑：Render 雲端使用 /tmp/database.db，本地使用 database.db
 DB_PATH = (
     "/tmp/database.db"
     if os.environ.get("RENDER")
@@ -44,7 +44,7 @@ def init_db():
             )
         """)
 
-        # 3. 客戶主檔 (供訂單/銷貨/應收使用)
+        # 3. 客戶主檔
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS customers (
                 customer_code TEXT PRIMARY KEY,
@@ -97,7 +97,7 @@ def init_db():
             )
         """)
 
-        # 7. 庫存帳 (Inventory Ledger)
+        # 7. 庫存帳
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inventory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, warehouse TEXT, model TEXT,
@@ -106,7 +106,7 @@ def init_db():
             )
         """)
 
-        # 8. 客戶訂單 (Sales Orders) 主檔與明細
+        # 8. 客戶訂單主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales_orders (
                 so_number TEXT PRIMARY KEY, sales_person TEXT, order_date TEXT,
@@ -122,7 +122,7 @@ def init_db():
             )
         """)
 
-        # 9. 銷貨出貨單 (Shipping/Sales Delivery) 主檔與明細
+        # 9. 銷貨出貨單主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS delivery_orders (
                 do_number TEXT PRIMARY KEY, shipper_name TEXT, warehouse TEXT,
@@ -138,7 +138,7 @@ def init_db():
             )
         """)
 
-        # 10. 應付帳款 (AP) 與 付款記錄
+        # 10. 應付帳款與付款
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ap_invoices (
                 inbound_no TEXT PRIMARY KEY, inbound_date TEXT, vendor_display TEXT,
@@ -152,7 +152,7 @@ def init_db():
             )
         """)
 
-        # 11. 應收帳款 (AR) 與 收款記錄
+        # 11. 應收帳款與收款
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ar_invoices (
                 do_number TEXT PRIMARY KEY, delivery_date TEXT, customer_display TEXT,
@@ -166,7 +166,7 @@ def init_db():
             )
         """)
 
-        # 初始化預設資料
+        # 預設資料初始化
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("INSERT INTO users (id, name, password) VALUES (?, ?, ?)",
@@ -303,7 +303,6 @@ def save_inbound():
                 (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
             
-            # 同步更新庫存 (累加進貨)
             conn.execute("""INSERT INTO inventory (warehouse, model, product_name, specification, color, stock_qty, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(warehouse, model, color) 
@@ -311,7 +310,6 @@ def save_inbound():
                          (wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"), item.get("actual_qty"), datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                           item.get("actual_qty"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
-        # 同步應付帳款
         v_display = (data.get("vendor_id", "") + " " if data.get("vendor_id") else "") + (data.get("vendor_name") or "")
         conn.execute("INSERT OR REPLACE INTO ap_invoices VALUES (?,?,?,?, '月結30天', ?, '未付')",
             (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
@@ -386,12 +384,10 @@ def save_delivery():
                 (do_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("shipped_qty"), item.get("unit_price"), sub, item.get("remarks")))
             
-            # 扣減庫存
             conn.execute("""UPDATE inventory SET stock_qty = stock_qty - ?, updated_at = ? 
                             WHERE warehouse = ? AND model = ? AND color = ?""",
                          (item.get("shipped_qty"), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), wh, item.get("model"), item.get("color")))
 
-        # 同步應收帳款
         c_display = (data.get("customer_code", "") + " " if data.get("customer_code") else "") + (data.get("customer_name") or "")
         conn.execute("INSERT OR REPLACE INTO ar_invoices VALUES (?,?,?,?, '月結30天', ?, '未收')",
             (do_no, data.get("delivery_date"), c_display, total_amt, data.get("delivery_date")))
@@ -602,7 +598,6 @@ MAIN_HTML = """
     .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
     .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
     .msgBox { display: none; margin-top: 8px; padding: 6px; border-radius: 4px; font-size: 12px; text-align: center; font-weight: 600; }
-    .msg-loading { background: #e0f2fe; color: #0369a1; } .msg-success { background: #dcfce7; color: #15803d; } .msg-error { background: #fee2e2; color: #b91c1c; }
     .app-view { display: none; } .app-view.active { display: block; }
     @media print { .nav-tabs, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } body { background-color: #fff; padding: 0; } .container { box-shadow: none; border: none; width: 100%; } form { padding: 10px; } }
   </style>
@@ -675,7 +670,6 @@ MAIN_HTML = """
         </div>
         <div class="form-group" style="margin-top:8px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
       </div>
-      <div id="poMsgBox" class="msgBox"></div>
     </form>
   </div>
 
@@ -708,7 +702,6 @@ MAIN_HTML = """
           <tfoot><tr><td colspan="8" style="text-align:right; font-weight:bold;">總進貨金額：</td><td style="font-weight:bold;"><span id="inGrandTotalText">0.00</span></td></tr></tfoot>
         </table>
       </div>
-      <div id="inMsgBox" class="msgBox"></div>
     </form>
   </div>
 
@@ -743,10 +736,7 @@ MAIN_HTML = """
           <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr></tfoot>
         </table>
       </div>
-      <div class="section-block">
-        <div class="form-group"><label>備註說明</label><textarea id="so_remark" rows="2"></textarea></div>
-      </div>
-      <div id="soMsgBox" class="msgBox"></div>
+      <div class="section-block"><div class="form-group"><label>備註說明</label><textarea id="so_remark" rows="2"></textarea></div></div>
     </form>
   </div>
 
@@ -778,7 +768,6 @@ MAIN_HTML = """
           <tfoot><tr><td colspan="7" style="text-align:right; font-weight:bold;">總出貨金額：</td><td style="font-weight:bold;"><span id="doGrandTotalText">0.00</span></td></tr></tfoot>
         </table>
       </div>
-      <div id="doMsgBox" class="msgBox"></div>
     </form>
   </div>
 
@@ -789,9 +778,7 @@ MAIN_HTML = """
       <div class="po-company-info"><div>各倉存貨即時連動</div></div>
     </div>
     <div style="padding:20px 30px;">
-      <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
-        <button type="button" class="btn-query" onclick="loadInventory()">🔄 重新整理庫存</button>
-      </div>
+      <div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button type="button" class="btn-query" onclick="loadInventory()">🔄 重新整理庫存</button></div>
       <table class="items-table">
         <thead><tr><th>倉庫別</th><th>產品型號</th><th>產品名稱</th><th>規格</th><th>顏色</th><th>現有庫存量</th><th>最後更新時間</th></tr></thead>
         <tbody id="inventoryTableBody"></tbody>
@@ -857,7 +844,7 @@ MAIN_HTML = """
   <div style="background:#fff; padding:25px; border-radius:8px; width:380px;">
     <h3 id="modalTitle" style="margin-bottom:12px; font-size:16px; color:#0f172a;">登記作業</h3>
     <form onsubmit="handleModalSubmit(event)" style="padding:0;">
-      <input type="hidden" id="modalNo"> <input type="hidden" id="modalType">
+      <input type="hidden" id="modalNo"><input type="hidden" id="modalType">
       <div class="form-group" style="margin-bottom:8px;"><label>對象名稱</label><input type="text" id="modalName" class="readonly" readonly></div>
       <div class="form-group" style="margin-bottom:8px;"><label class="required">日期</label><input type="date" id="modalDate" required></div>
       <div class="form-group" style="margin-bottom:8px;"><label class="required">金額</label><input type="number" id="modalAmount" step="0.01" required></div>
@@ -994,7 +981,7 @@ MAIN_HTML = """
           tbody.innerHTML += `<tr><td><input type="text" class="po-model" value="${it.model||''}"></td><td><input type="text" class="po-name" value="${it.name||''}"></td><td><input type="text" class="po-size" value="${it.size||''}"></td><td><input type="text" class="po-color" value="${it.color||''}"></td><td><input type="number" class="po-qty input-qty" value="${it.qty||''}" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" value="${it.unit_price||''}" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
         });
         calculatePoTotals();
-        alert("✔ 採購單載入成功 (可修改後直接存檔覆蓋)");
+        alert("✔ 採購單載入成功！");
       } else alert(res.message);
     });
   }
