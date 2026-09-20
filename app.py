@@ -884,10 +884,11 @@ MAIN_HTML = """
     .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
     .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
     
-    /* 公司資訊重新排版：電話與統編在上方，地址獨立在最下方 */
+    /* 公司資訊精緻排版：公司名稱在最上方，統編電話在中間，地址在最下方 */
     .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.5; }
-    .company-top-row { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 4px; }
-    .company-address { font-size: 11.5px; color: #94a3b8; }
+    .company-name-top { font-size: 14px; font-weight: 700; color: #f59e0b; margin-bottom: 3px; }
+    .company-mid-row { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 3px; }
+    .company-address { font-size: 11px; color: #94a3b8; }
     
     form { padding: 25px 35px 45px 35px; }
     .section-block { margin-bottom: 18px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
@@ -994,7 +995,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PURCHASE ORDER (採購訂單)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1051,7 +1053,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>GOODS RECEIPT (進貨驗收單)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1086,7 +1089,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES ORDER (客戶訂單與訂金管理)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1129,7 +1133,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DELIVERY ORDER (銷貨出貨單)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1167,7 +1172,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY MANAGEMENT (庫存主檔與維護)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1212,7 +1218,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CUSTOMER MASTER (客戶資料主檔建立)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1252,7 +1259,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY TRANSACTION (進退/銷退單據)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1287,7 +1295,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES PERFORMANCE (業務人員業績與獎金統計)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1337,7 +1346,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CREDIT CARD TRANSACTIONS (信用卡刷卡與退刷管理)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1376,7 +1386,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVOICE SYSTEM (銷貨與進項發票管理)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1421,7 +1432,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>HR MANAGEMENT (員工與新進人員名冊)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1464,7 +1476,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PAYROLL SYSTEM (員工薪資與發放管理)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1526,7 +1539,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1618,7 +1632,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER FREIGHT RECONCILIATION (司機運費對帳系統)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1648,7 +1663,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款管理)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1676,7 +1692,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款管理)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
@@ -1704,7 +1721,8 @@ MAIN_HTML = """
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD & VOUCHERS (會計傳票與四大財務報表)</div></div>
       <div class="po-company-info">
-        <div class="company-top-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
         <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
       </div>
     </div>
