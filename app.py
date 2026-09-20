@@ -7,6 +7,8 @@ import psycopg2.extras
 app = Flask(__name__)
 app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 
+# 設定你的 Supabase PostgreSQL 雲端資料庫連線字串 (Session Pooler)
+# 請將 你的真實密碼 替換為你的 Supabase 資料庫真實密碼
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
     "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
@@ -180,18 +182,18 @@ def init_db():
             )
         """)
 
-       # 自動建立或補足預設與新進人員帳號
+        # 自動建立或強制更新使用者帳號密碼（修改密碼後會自動同步更新）
         default_users = [
             ("EMP01", "黃詠甯", "0320", "會計主管"),
-            ("EMP02", "江婉秀", "0510", "會計人員"),
-            ("admin", "系統管理員", "pezang888", "系統管理"),
-            ("EMP03", "新進同仁姓名", "你的密碼", "職稱角色")  # <--- 只要在這裡照格式加一行即可！
+            ("EMP02", "江婉秀", "0510", "門市經辦"),
+            ("admin", "系統管理員", "pezang888", "系統管理")
         ]
         for u in default_users:
             cursor.execute("""
                 INSERT INTO users (id, name, password, role) 
                 VALUES (%s, %s, %s, %s) 
-                ON CONFLICT (id) DO NOTHING
+                ON CONFLICT (id) DO UPDATE 
+                SET password = EXCLUDED.password, name = EXCLUDED.name, role = EXCLUDED.role
             """, u)
 
         cursor.execute("SELECT COUNT(*) FROM warehouses")
@@ -1583,7 +1585,7 @@ MAIN_HTML = """
             <div class="col-3"><label class="form-label">狀態</label><select id="empStatus" class="form-select form-select-sm"><option value="在職" selected>在職</option><option value="離職">離職</option></select></div>
           </div>
           <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label text-primary">匯款銀行名稱</label><input type="text" id="empBankName" class="form-control form-control-sm" placeholder="例如: 國世華 / 中國信託"></div>
+            <div class="col-4"><label class="form-label text-primary">匯款銀行名稱</label><input type="text" id="empBankName" class="form-control form-control-sm" placeholder="例如: 國泰世華 / 中國信託"></div>
             <div class="col-5"><label class="form-label text-primary">銀行帳號 (匯款用)</label><input type="text" id="empBankAccount" class="form-control form-control-sm" placeholder="例如: 012-3456-7890"></div>
             <div class="col-3 d-flex align-items-end gap-1">
               <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存員工</button>
