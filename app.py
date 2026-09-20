@@ -183,7 +183,7 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()["count"] == 0:
             cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (%s, %s, %s, %s)",
-                [("EMP01", "黃詠甯", "0320", "會計主管"), ("EMP02", "江婉秀", "1234", "門市經辦"), ("admin", "系統管理員", "pezang888", "系統管理")])
+                [("EMP01", "黃詠甯", "Erin0320", "會計主管"), ("EMP02", "江婉秀", "0501", "會計人員"), ("admin", "系統管理員", "pezang888", "系統管理")])
 
         cursor.execute("SELECT COUNT(*) FROM warehouses")
         if cursor.fetchone()["count"] == 0:
