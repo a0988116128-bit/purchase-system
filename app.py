@@ -1,20 +1,22 @@
 from datetime import datetime
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
 import os
-import sqlite3
+import psycopg2
+import psycopg2.extras
 
 app = Flask(__name__)
 app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 
-DB_PATH = (
-    "/tmp/database.db"
-    if os.environ.get("RENDER")
-    else "database.db"
+# 設定你的 Supabase PostgreSQL 雲端資料庫連線字串
+# 請把 YOUR_PASSWORD 替換成你建立 Supabase 時設定的資料庫密碼
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", 
+    "postgresql://postgres:YOUR_PASSWORD@db.gutyrssxtpuxndflkceq.supabase.co:5432/postgres"
 )
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    # 連線到 PostgreSQL 並設定 Row 格式以便像字典一樣取值
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 def init_db():
@@ -25,13 +27,13 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS suppliers (supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, contact_info TEXT, payment_terms TEXT, bank_info TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS customers (customer_code TEXT PRIMARY KEY, customer_name TEXT NOT NULL, tax_id TEXT, contact_info TEXT, payment_terms TEXT)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id INTEGER PRIMARY KEY AUTOINCREMENT, warehouse_name TEXT UNIQUE NOT NULL)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id SERIAL PRIMARY KEY, warehouse_name TEXT UNIQUE NOT NULL)")
         cursor.execute("CREATE TABLE IF NOT EXISTS inventory_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, safety_stock INTEGER DEFAULT 0, note TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS employees (emp_id TEXT PRIMARY KEY, emp_name TEXT NOT NULL, department TEXT, title TEXT, phone TEXT, hire_date TEXT, base_salary REAL DEFAULT 0, status TEXT DEFAULT '在職', note TEXT)")
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS payroll_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, emp_id TEXT, emp_name TEXT, pay_month TEXT,
+                id SERIAL PRIMARY KEY, emp_id TEXT, emp_name TEXT, pay_month TEXT,
                 base_salary REAL DEFAULT 0, allowance REAL DEFAULT 0, overtime_pay REAL DEFAULT 0,
                 leave_deduction REAL DEFAULT 0, emp_purchase_deduction REAL DEFAULT 0,
                 insurance_deduction REAL DEFAULT 0, net_salary REAL DEFAULT 0, pay_date TEXT,
@@ -44,13 +46,13 @@ def init_db():
                 po_number TEXT PRIMARY KEY, purchaser TEXT, order_date TEXT, delivery_date TEXT,
                 price_term TEXT, vendor_type TEXT, supplier_code TEXT, supplier_name TEXT,
                 vendor_contact TEXT, currency TEXT, grand_total REAL, deposit_pct REAL,
-                deposit_amount REAL, balance_pct REAL, balance_amount REAL,
+                deposit_amount TEXT, balance_pct REAL, balance_amount TEXT,
                 shipping_mark TEXT, packing TEXT, bank_info TEXT, created_at TEXT
             )
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS purchase_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, po_number TEXT, model TEXT,
+                id SERIAL PRIMARY KEY, po_number TEXT, model TEXT,
                 product_name TEXT, specification TEXT, color TEXT, quantity INTEGER,
                 unit_price REAL, subtotal REAL, remarks TEXT
             )
@@ -65,7 +67,7 @@ def init_db():
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inbound_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, inbound_no TEXT, warehouse TEXT,
+                id SERIAL PRIMARY KEY, inbound_no TEXT, warehouse TEXT,
                 model TEXT, product_name TEXT, specification TEXT, color TEXT,
                 ordered_qty INTEGER, actual_qty INTEGER, unit_price REAL, subtotal REAL, remarks TEXT
             )
@@ -81,7 +83,7 @@ def init_db():
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, so_number TEXT, model TEXT,
+                id SERIAL PRIMARY KEY, so_number TEXT, model TEXT,
                 product_name TEXT, specification TEXT, color TEXT, quantity INTEGER,
                 unit_price REAL, subtotal REAL, remarks TEXT
             )
@@ -96,7 +98,7 @@ def init_db():
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS delivery_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, do_number TEXT, warehouse TEXT,
+                id SERIAL PRIMARY KEY, do_number TEXT, warehouse TEXT,
                 model TEXT, product_name TEXT, specification TEXT, color TEXT,
                 shipped_qty INTEGER, unit_price REAL, subtotal REAL, remarks TEXT
             )
@@ -112,7 +114,7 @@ def init_db():
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS credit_card_txns (
-                txn_id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT, customer_name TEXT,
+                txn_id SERIAL PRIMARY KEY, order_id TEXT, customer_name TEXT,
                 txn_type TEXT DEFAULT '刷卡收入', amount REAL, auth_code TEXT, card_last4 TEXT,
                 txn_date TEXT, note TEXT, created_at TEXT
             )
@@ -133,7 +135,7 @@ def init_db():
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ar_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 order_id TEXT, customer TEXT, sales_amount REAL, deposit REAL,
                 receive_amount REAL, pay_type TEXT, check_no TEXT, check_due_date TEXT,
                 receive_date TEXT, unpaid_amount REAL, driver TEXT, driver_area TEXT,
@@ -143,7 +145,7 @@ def init_db():
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inventory_transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, trans_date TEXT, trans_type TEXT,
+                id SERIAL PRIMARY KEY, trans_date TEXT, trans_type TEXT,
                 order_id TEXT, customer_code TEXT, customer_name TEXT, sku TEXT,
                 qty INTEGER, price REAL, total_amount REAL, cogs REAL,
                 keyin_user TEXT, status TEXT, note TEXT, created_at TEXT
@@ -152,7 +154,7 @@ def init_db():
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales_performance (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 sales_person TEXT, order_id TEXT, order_date TEXT,
                 customer_name TEXT, sales_amount REAL, commission_rate REAL DEFAULT 0.05,
                 commission_amount REAL, status TEXT DEFAULT '已結算',
@@ -168,36 +170,37 @@ def init_db():
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS voucher_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, voucher_no TEXT,
+                id SERIAL PRIMARY KEY, voucher_no TEXT,
                 account_code TEXT, account_name TEXT, debit REAL DEFAULT 0, credit REAL DEFAULT 0
             )
         """)
 
         cursor.execute("SELECT COUNT(*) FROM users")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)",
+        if cursor.fetchone()["count"] == 0:
+            cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (%s, %s, %s, %s)",
                 [("01", "黃詠甯", "0320", "系統管理"), ("02", "經辦人員", "1234", "門市經辦"), ("admin", "系統管理員", "pezang888", "系統管理")])
 
         cursor.execute("SELECT COUNT(*) FROM warehouses")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO warehouses (warehouse_name) VALUES (?)",
+        if cursor.fetchone()["count"] == 0:
+            cursor.executemany("INSERT INTO warehouses (warehouse_name) VALUES (%s)",
                 [("八里倉",), ("南倉",), ("土城門市倉",), ("外倉",)])
 
         cursor.execute("SELECT COUNT(*) FROM customers")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO customers VALUES (?, ?, ?, ?, ?)", [
+        if cursor.fetchone()["count"] == 0:
+            cursor.executemany("INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms) VALUES (%s, %s, %s, %s, %s)", [
                 ("C001", "王小明", "11223344", "0912-345678", "月結30天"),
                 ("C002", "林美華", "55667788", "0922-888999", "月結30天")
             ])
 
         cursor.execute("SELECT COUNT(*) FROM employees")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        if cursor.fetchone()["count"] == 0:
+            cursor.executemany("INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", [
                 ("EMP01", "黃詠甯", "管理部", "會計及特助", "0912-345678", "2024-01-01", 45000, "在職", "核心管理"),
                 ("EMP02", "江婉秀", "門市部", "門市經辦", "0922-888999", "2024-06-01", 35000, "在職", "門市業務")
             ])
 
         conn.commit()
+        cursor.close()
         conn.close()
     except Exception as e:
         print(f"Init DB Error: {e}")
@@ -219,7 +222,10 @@ def login_page():
         data = request.get_json() if request.is_json else request.form
         uid, pwd = data.get("username") or data.get("user_id"), data.get("password")
         conn = get_db_connection()
-        user = conn.execute("SELECT * FROM users WHERE id = ? AND password = ?", (uid, pwd)).fetchone()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = %s AND password = %s", (uid, pwd))
+        user = cursor.fetchone()
+        cursor.close()
         conn.close()
         if user:
             session["user_id"], session["user_name"], session["user_role"] = user["id"], user["name"], user["role"]
@@ -235,21 +241,30 @@ def logout():
 @app.route("/api/warehouses")
 def get_warehouses():
     conn = get_db_connection()
-    rows = conn.execute("SELECT warehouse_name FROM warehouses").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT warehouse_name FROM warehouses")
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify([r["warehouse_name"] for r in rows])
 
 @app.route("/api/vendor/<string:v_id>")
 def get_vendor(v_id):
     conn = get_db_connection()
-    row = conn.execute("SELECT supplier_name FROM suppliers WHERE supplier_code = ?", (v_id,)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT supplier_name FROM suppliers WHERE supplier_code = %s", (v_id,))
+    row = cursor.fetchone()
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "vendor_name": row["supplier_name"]} if row else {"found": False})
 
 @app.route("/api/customer/<string:c_id>")
 def get_customer(c_id):
     conn = get_db_connection()
-    row = conn.execute("SELECT customer_name FROM customers WHERE customer_code = ?", (c_id,)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT customer_name FROM customers WHERE customer_code = %s", (c_id,))
+    row = cursor.fetchone()
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
@@ -258,7 +273,10 @@ def get_customer(c_id):
 @app.route("/api/customers/list")
 def api_get_customers():
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM customers ORDER BY customer_code").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM customers ORDER BY customer_code")
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -268,13 +286,19 @@ def api_save_customer():
     data = request.get_json()
     try:
         conn = get_db_connection()
-        conn.execute("""INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(customer_code) DO UPDATE SET customer_name=?, tax_id=?, contact_info=?, payment_terms=?""",
-                   (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
-                    data.get("contact_info"), data.get("payment_terms"),
-                    data.get("customer_name"), data.get("tax_id"), data.get("contact_info"), data.get("payment_terms")))
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (customer_code) DO UPDATE 
+            SET customer_name = EXCLUDED.customer_name, 
+                tax_id = EXCLUDED.tax_id, 
+                contact_info = EXCLUDED.contact_info, 
+                payment_terms = EXCLUDED.payment_terms
+        """, (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
+              data.get("contact_info"), data.get("payment_terms")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 客戶資料存檔/修改成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -284,8 +308,10 @@ def api_delete_customer(c_code):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM customers WHERE customer_code = ?", (c_code,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM customers WHERE customer_code = %s", (c_code,))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 客戶刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -295,7 +321,10 @@ def api_delete_customer(c_code):
 @app.route("/api/employees/list")
 def get_employees():
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM employees ORDER BY emp_id").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM employees ORDER BY emp_id")
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -305,14 +334,18 @@ def save_employee():
     data = request.get_json()
     try:
         conn = get_db_connection()
-        conn.execute("""INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(emp_id) DO UPDATE SET emp_name=?, department=?, title=?, phone=?, hire_date=?, base_salary=?, status=?, note=?""",
-                   (data.get("emp_id"), data.get("emp_name"), data.get("department"), data.get("title"),
-                    data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note"),
-                    data.get("emp_name"), data.get("department"), data.get("title"), data.get("phone"),
-                    data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note")))
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (emp_id) DO UPDATE 
+            SET emp_name = EXCLUDED.emp_name, department = EXCLUDED.department, title = EXCLUDED.title,
+                phone = EXCLUDED.phone, hire_date = EXCLUDED.hire_date, base_salary = EXCLUDED.base_salary,
+                status = EXCLUDED.status, note = EXCLUDED.note
+        """, (data.get("emp_id"), data.get("emp_name"), data.get("department"), data.get("title"),
+              data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 員工資料存檔/修改成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -322,8 +355,10 @@ def delete_employee(emp_id):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM employees WHERE emp_id = ?", (emp_id,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM employees WHERE emp_id = %s", (emp_id,))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 員工刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -331,7 +366,10 @@ def delete_employee(emp_id):
 @app.route("/api/payroll/list")
 def get_payroll():
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM payroll_records ORDER BY pay_month DESC, emp_id ASC").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM payroll_records ORDER BY pay_month DESC, emp_id ASC")
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -341,6 +379,7 @@ def save_payroll():
     data = request.get_json()
     try:
         conn = get_db_connection()
+        cursor = conn.cursor()
         base = float(data.get("base_salary", 0))
         allow = float(data.get("allowance", 0))
         ot = float(data.get("overtime_pay", 0))
@@ -350,14 +389,18 @@ def save_payroll():
         net = base + allow + ot - leave_ded - pur_ded - ins_ded
         p_id = data.get("payroll_id")
         if p_id:
-            conn.execute("""UPDATE payroll_records SET base_salary=?, allowance=?, overtime_pay=?, leave_deduction=?, emp_purchase_deduction=?, insurance_deduction=?, net_salary=?, pay_date=?, status=?, note=? WHERE id=?""",
-                         (base, allow, ot, leave_ded, pur_ded, ins_ded, net, data.get("pay_date"), data.get("status", "已發放"), data.get("note"), p_id))
+            cursor.execute("""
+                UPDATE payroll_records SET base_salary=%s, allowance=%s, overtime_pay=%s, leave_deduction=%s, 
+                emp_purchase_deduction=%s, insurance_deduction=%s, net_salary=%s, pay_date=%s, status=%s, note=%s WHERE id=%s
+            """, (base, allow, ot, leave_ded, pur_ded, ins_ded, net, data.get("pay_date"), data.get("status", "已發放"), data.get("note"), p_id))
         else:
-            conn.execute("""INSERT INTO payroll_records (emp_id, emp_name, pay_month, base_salary, allowance, overtime_pay, leave_deduction, emp_purchase_deduction, insurance_deduction, net_salary, pay_date, status, note, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (data.get("emp_id"), data.get("emp_name"), data.get("pay_month"), base, allow, ot, leave_ded, pur_ded, ins_ded, net,
-                          data.get("pay_date"), data.get("status", "已發放"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            cursor.execute("""
+                INSERT INTO payroll_records (emp_id, emp_name, pay_month, base_salary, allowance, overtime_pay, leave_deduction, emp_purchase_deduction, insurance_deduction, net_salary, pay_date, status, note, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (data.get("emp_id"), data.get("emp_name"), data.get("pay_month"), base, allow, ot, leave_ded, pur_ded, ins_ded, net,
+                  data.get("pay_date"), data.get("status", "已發放"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": f"✔ 薪資紀錄存檔成功！實發金額: ${net:,.2f}"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -367,8 +410,10 @@ def delete_payroll(pay_id):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM payroll_records WHERE id = ?", (pay_id,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM payroll_records WHERE id = %s", (pay_id,))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 薪資紀錄刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -382,19 +427,24 @@ def save_po():
     po_no = data.get("po_no")
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM purchase_orders WHERE po_number = ?", (po_no,))
-        conn.execute("DELETE FROM purchase_items WHERE po_number = ?", (po_no,))
-        conn.execute("""INSERT INTO purchase_orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (po_no, data.get("buyer_name"), data.get("order_date"), data.get("delivery_date"),
-             data.get("price_term"), data.get("vendor_type"), data.get("vendor_id"), data.get("vendor_name"),
-             data.get("vendor_contact"), data.get("currency"), data.get("grand_total", 0), data.get("dep_pct", 0),
-             data.get("dep_amt", ""), data.get("bal_pct", 100), data.get("bal_amt", ""),
-             data.get("shipping_mark"), data.get("packing"), data.get("bank_info"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM purchase_orders WHERE po_number = %s", (po_no,))
+        cursor.execute("DELETE FROM purchase_items WHERE po_number = %s", (po_no,))
+        cursor.execute("""
+            INSERT INTO purchase_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (po_no, data.get("buyer_name"), data.get("order_date"), data.get("delivery_date"),
+              data.get("price_term"), data.get("vendor_type"), data.get("vendor_id"), data.get("vendor_name"),
+              data.get("vendor_contact"), data.get("currency"), data.get("grand_total", 0), data.get("dep_pct", 0),
+              str(data.get("dep_amt", "")), data.get("bal_pct", 100), str(data.get("bal_amt", "")),
+              data.get("shipping_mark"), data.get("packing"), data.get("bank_info"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         for item in data.get("items", []):
-            conn.execute("INSERT INTO purchase_items (po_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?)",
-                (po_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                 item.get("qty"), item.get("unit_price"), item.get("total"), item.get("remarks")))
+            cursor.execute("""
+                INSERT INTO purchase_items (po_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) 
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (po_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
+                  item.get("qty"), item.get("unit_price"), item.get("total"), item.get("remarks")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error", "message": str(e)})
@@ -402,11 +452,16 @@ def save_po():
 @app.route("/api/po/<string:po_no>")
 def get_po(po_no):
     conn = get_db_connection()
-    po = conn.execute("SELECT * FROM purchase_orders WHERE po_number = ?", (po_no,)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM purchase_orders WHERE po_number = %s", (po_no,))
+    po = cursor.fetchone()
     if not po:
+        cursor.close()
         conn.close()
         return jsonify({"found": False, "message": "找不到採購單"})
-    items = [dict(r) for r in conn.execute("SELECT model, product_name as name, specification as size, color, quantity as qty, unit_price, subtotal as total, remarks FROM purchase_items WHERE po_number = ?", (po_no,)).fetchall()]
+    cursor.execute("SELECT model, product_name as name, specification as size, color, quantity as qty, unit_price, subtotal as total, remarks FROM purchase_items WHERE po_number = %s", (po_no,))
+    items = [dict(r) for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "header": dict(po), "items": items})
 
@@ -417,11 +472,12 @@ def save_inbound():
     in_no = data.get("inbound_no")
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM inbound_orders WHERE inbound_no = ?", (in_no,))
-        conn.execute("DELETE FROM inbound_items WHERE inbound_no = ?", (in_no,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM inbound_orders WHERE inbound_no = %s", (in_no,))
+        cursor.execute("DELETE FROM inbound_items WHERE inbound_no = %s", (in_no,))
         v_id = data.get("vendor_id", "") or ""
         v_name = data.get("vendor_name", "") or "未命名供應商"
-        conn.execute("INSERT INTO inbound_orders VALUES (?,?,?,?,?,?,?,?,?)",
+        cursor.execute("INSERT INTO inbound_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (in_no, data.get("receiver_name"), data.get("warehouse", "八里倉"), data.get("po_no"),
              data.get("inbound_date"), data.get("month"), v_id, v_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         total_amt = 0
@@ -429,18 +485,26 @@ def save_inbound():
             sub = item.get("actual_qty", 0) * item.get("unit_price", 0)
             total_amt += sub
             wh = item.get("warehouse", "八里倉")
-            conn.execute("INSERT INTO inbound_items (inbound_no, warehouse, model, product_name, specification, color, ordered_qty, actual_qty, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                 item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
+            cursor.execute("""
+                INSERT INTO inbound_items (inbound_no, warehouse, model, product_name, specification, color, ordered_qty, actual_qty, unit_price, subtotal, remarks) 
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
+                  item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
             sku = item.get("model")
-            conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
-                            VALUES (?, ?, '五金配件', ?, ?, ?, 10, '進貨入庫')
-                            ON CONFLICT(sku) DO UPDATE SET stock = stock + ?""",
-                       (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty"), item.get("actual_qty")))
+            cursor.execute("""
+                INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
+                VALUES (%s, %s, '五金配件', %s, %s, %s, 10, '進貨入庫')
+                ON CONFLICT (sku) DO UPDATE SET stock = inventory_items.stock + EXCLUDED.stock
+            """, (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty")))
         v_display = f"{v_id} {v_name}".strip() if v_id else v_name
-        conn.execute("INSERT OR REPLACE INTO ap_invoices VALUES (?,?,?,?, '月結30天', ?, '未付')",
-            (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
+        cursor.execute("""
+            INSERT INTO ap_invoices (inbound_no, inbound_date, vendor_display, total_amount, payment_term, due_date, status) 
+            VALUES (%s, %s, %s, %s, '月結30天', %s, '未付')
+            ON CONFLICT (inbound_no) DO UPDATE 
+            SET inbound_date = EXCLUDED.inbound_date, vendor_display = EXCLUDED.vendor_display, total_amount = EXCLUDED.total_amount, due_date = EXCLUDED.due_date
+        """, (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error", "message": str(e)})
@@ -448,11 +512,16 @@ def save_inbound():
 @app.route("/api/inbound/<string:in_no>")
 def get_inbound(in_no):
     conn = get_db_connection()
-    order = conn.execute("SELECT * FROM inbound_orders WHERE inbound_no = ?", (in_no,)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM inbound_orders WHERE inbound_no = %s", (in_no,))
+    order = cursor.fetchone()
     if not order:
+        cursor.close()
         conn.close()
         return jsonify({"found": False, "message": "找不到進貨單"})
-    items = [dict(r) for r in conn.execute("SELECT warehouse, model, product_name as name, specification as size, color, ordered_qty, actual_qty, unit_price, subtotal as total, remarks FROM inbound_items WHERE inbound_no = ?", (in_no,)).fetchall()]
+    cursor.execute("SELECT warehouse, model, product_name as name, specification as size, color, ordered_qty, actual_qty, unit_price, subtotal as total, remarks FROM inbound_items WHERE inbound_no = %s", (in_no,))
+    items = [dict(r) for r in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "header": dict(order), "items": items})
 
@@ -463,14 +532,15 @@ def save_delivery():
     do_no = data.get("do_number")
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM delivery_orders WHERE do_number = ?", (do_no,))
-        conn.execute("DELETE FROM delivery_items WHERE do_number = ?", (do_no,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM delivery_orders WHERE do_number = %s", (do_no,))
+        cursor.execute("DELETE FROM delivery_items WHERE do_number = %s", (do_no,))
         c_id = data.get("customer_code", "") or ""
         c_name = data.get("customer_name", "") or "未命名客戶"
         driver = data.get("driver", "大蔡")
         manual_freight = float(data.get("manual_freight", 0))
 
-        conn.execute("INSERT INTO delivery_orders VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        cursor.execute("INSERT INTO delivery_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (do_no, data.get("shipper_name"), data.get("warehouse", "八里倉"), data.get("so_no"),
              data.get("delivery_date"), c_id, c_name, driver, manual_freight, data.get("grand_total", 0), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         total_amt = 0
@@ -478,15 +548,22 @@ def save_delivery():
             sub = item.get("shipped_qty", 0) * item.get("unit_price", 0)
             total_amt += sub
             wh = item.get("warehouse", "八里倉")
-            conn.execute("INSERT INTO delivery_items (do_number, warehouse, model, product_name, specification, color, shipped_qty, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (do_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                 item.get("shipped_qty"), item.get("unit_price"), sub, item.get("remarks")))
+            cursor.execute("""
+                INSERT INTO delivery_items (do_number, warehouse, model, product_name, specification, color, shipped_qty, unit_price, subtotal, remarks) 
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (do_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
+                  item.get("shipped_qty"), item.get("unit_price"), sub, item.get("remarks")))
             sku = item.get("model")
-            conn.execute("UPDATE inventory_items SET stock = stock - ? WHERE sku = ?", (item.get("shipped_qty"), sku))
+            cursor.execute("UPDATE inventory_items SET stock = stock - %s WHERE sku = %s", (item.get("shipped_qty"), sku))
         c_display = f"{c_id} {c_name}".strip() if c_id else c_name
-        conn.execute("INSERT OR REPLACE INTO ar_invoices VALUES (?,?,?,?, '月結30天', ?, '未收')",
-            (do_no, data.get("delivery_date"), c_display, total_amt, data.get("delivery_date")))
+        cursor.execute("""
+            INSERT INTO ar_invoices (do_number, delivery_date, customer_display, total_amount, payment_term, due_date, status) 
+            VALUES (%s, %s, %s, %s, '月結30天', %s, '未收')
+            ON CONFLICT (do_number) DO UPDATE 
+            SET delivery_date = EXCLUDED.delivery_date, customer_display = EXCLUDED.customer_display, total_amount = EXCLUDED.total_amount, due_date = EXCLUDED.due_date
+        """, (do_no, data.get("delivery_date"), c_display, total_amt, data.get("delivery_date")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error", "message": str(e)})
@@ -494,19 +571,27 @@ def save_delivery():
 @app.route("/api/delivery/<string:do_no>")
 def get_delivery(do_no):
     conn = get_db_connection()
-    dOrder = conn.execute("SELECT * FROM delivery_orders WHERE do_number = ?", (do_no,)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM delivery_orders WHERE do_number = %s", (do_no,))
+    dOrder = cursor.fetchone()
     if not dOrder:
+        cursor.close()
         conn.close()
         return jsonify({"found": False, "message": "找不到銷貨出貨單"})
-    items = [dict(r) for r in conn.execute("SELECT warehouse, model, product_name as name, specification as size, color, shipped_qty, unit_price, subtotal as total, remarks FROM delivery_items WHERE do_number = ?", (do_no,)).fetchall()]
+    cursor.execute("SELECT warehouse, model, product_name as name, specification as size, color, shipped_qty, unit_price, subtotal as total, remarks FROM delivery_items WHERE do_number = %s", (do_no,))
+    items = [dict(r) for r in cursor.fetchall()]
     res_data = dict(dOrder)
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "header": res_data, "items": items})
 
 @app.route("/api/inventory/list")
 def get_inventory():
     conn = get_db_connection()
-    rows = conn.execute("SELECT sku, name, category, cost, price, stock, safety_stock, note FROM inventory_items ORDER BY sku").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT sku, name, category, cost, price, stock, safety_stock, note FROM inventory_items ORDER BY sku")
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -516,35 +601,45 @@ def save_inventory_transaction():
     data = request.get_json()
     try:
         conn = get_db_connection()
+        cursor = conn.cursor()
         ttype = data.get("transType")
         sku = data.get("transSku")
         qty = int(data.get("transQty", 0))
         price = float(data.get("transPrice", 0))
-        item = conn.execute("SELECT * FROM inventory_items WHERE sku = ?", (sku,)).fetchone()
-        if not item: return jsonify({"success": False, "message": "找不到商品"})
+        cursor.execute("SELECT * FROM inventory_items WHERE sku = %s", (sku,))
+        item = cursor.fetchone()
+        if not item: 
+            cursor.close()
+            conn.close()
+            return jsonify({"success": False, "message": "找不到商品"})
         cost = item["cost"]
         current_stock = item["stock"]
         if ttype == "進貨":
-            conn.execute("UPDATE inventory_items SET stock = stock + ? WHERE sku = ?", (qty, sku))
+            cursor.execute("UPDATE inventory_items SET stock = stock + %s WHERE sku = %s", (qty, sku))
             cogs = 0
         elif ttype == "進貨退回":
-            conn.execute("UPDATE inventory_items SET stock = MAX(0, stock - ?) WHERE sku = ?", (qty, sku))
+            cursor.execute("UPDATE inventory_items SET stock = GREATEST(0, stock - %s) WHERE sku = %s", (qty, sku))
             cogs = 0
         elif ttype == "銷貨":
-            if current_stock < qty: return jsonify({"success": False, "message": f"庫存不足，剩餘 {current_stock} 件"})
-            conn.execute("UPDATE inventory_items SET stock = stock - ? WHERE sku = ?", (qty, sku))
+            if current_stock < qty: 
+                cursor.close()
+                conn.close()
+                return jsonify({"success": False, "message": f"庫存不足，剩餘 {current_stock} 件"})
+            cursor.execute("UPDATE inventory_items SET stock = stock - %s WHERE sku = %s", (qty, sku))
             cogs = qty * cost
         elif ttype == "銷貨退回":
-            conn.execute("UPDATE inventory_items SET stock = stock + ? WHERE sku = ?", (qty, sku))
+            cursor.execute("UPDATE inventory_items SET stock = stock + %s WHERE sku = %s", (qty, sku))
             cogs = -(qty * cost)
         else:
             cogs = 0
         total_amt = qty * price
-        conn.execute("""INSERT INTO inventory_transactions (trans_date, trans_type, order_id, customer_code, customer_name, sku, qty, price, total_amount, cogs, keyin_user, status, note, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '已入帳', ?, ?)""",
-                   (data.get("transDate"), ttype, data.get("orderId"), data.get("customerCode"), data.get("customerName"),
-                    sku, qty, price, total_amt, cogs, data.get("keyinUser"), data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        cursor.execute("""
+            INSERT INTO inventory_transactions (trans_date, trans_type, order_id, customer_code, customer_name, sku, qty, price, total_amount, cogs, keyin_user, status, note, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '已入帳', %s, %s)
+        """, (data.get("transDate"), ttype, data.get("orderId"), data.get("customerCode"), data.get("customerName"),
+              sku, qty, price, total_amt, cogs, data.get("keyinUser"), data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": f"【{ttype}】單據登錄成功！結轉 COGS: ${cogs:,.0f}"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -552,7 +647,10 @@ def save_inventory_transaction():
 @app.route("/api/sales/performance")
 def get_sales_performance():
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM sales_performance ORDER BY order_date DESC").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM sales_performance ORDER BY order_date DESC")
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -562,20 +660,24 @@ def save_sales_performance():
     data = request.get_json()
     try:
         conn = get_db_connection()
+        cursor = conn.cursor()
         sp_id = data.get("perf_id")
         sales_amt = float(data.get("sales_amount", 0))
         rate = float(data.get("commission_rate", 0.05))
         comm_amt = sales_amt * rate
         if sp_id:
-            conn.execute("""UPDATE sales_performance SET sales_person=?, order_id=?, order_date=?, customer_name=?, sales_amount=?, commission_rate=?, commission_amount=?, status=?, note=? WHERE id=?""",
-                         (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
-                          sales_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), sp_id))
+            cursor.execute("""
+                UPDATE sales_performance SET sales_person=%s, order_id=%s, order_date=%s, customer_name=%s, sales_amount=%s, commission_rate=%s, commission_amount=%s, status=%s, note=%s WHERE id=%s
+            """, (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
+                  sales_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), sp_id))
         else:
-            conn.execute("""INSERT INTO sales_performance (sales_person, order_id, order_date, customer_name, sales_amount, commission_rate, commission_amount, status, note, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
-                          sales_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            cursor.execute("""
+                INSERT INTO sales_performance (sales_person, order_id, order_date, customer_name, sales_amount, commission_rate, commission_amount, status, note, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
+                  sales_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 業務業績紀錄存檔成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -585,8 +687,10 @@ def delete_sales_performance(sp_id):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM sales_performance WHERE id = ?", (sp_id,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sales_performance WHERE id = %s", (sp_id,))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 業務業績紀錄刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -594,11 +698,15 @@ def delete_sales_performance(sp_id):
 @app.route("/api/vouchers/list")
 def get_vouchers():
     conn = get_db_connection()
-    vouchers = conn.execute("SELECT * FROM vouchers ORDER BY voucher_date DESC").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM vouchers ORDER BY voucher_date DESC")
+    vouchers = cursor.fetchall()
     result = []
     for v in vouchers:
-        items = conn.execute("SELECT * FROM voucher_items WHERE voucher_no = ?", (v["voucher_no"],)).fetchall()
+        cursor.execute("SELECT * FROM voucher_items WHERE voucher_no = %s", (v["voucher_no"],))
+        items = cursor.fetchall()
         result.append({**dict(v), "items": [dict(i) for i in items]})
+    cursor.close()
     conn.close()
     return jsonify(result)
 
@@ -608,21 +716,25 @@ def save_voucher():
     data = request.get_json()
     try:
         conn = get_db_connection()
+        cursor = conn.cursor()
         v_no = data.get("voucher_no")
         items = data.get("items", [])
         total_dr = sum(float(i.get("debit", 0)) for i in items)
         total_cr = sum(float(i.get("credit", 0)) for i in items)
         if abs(total_dr - total_cr) > 0.01:
+            cursor.close()
+            conn.close()
             return jsonify({"success": False, "message": f"❌ 借貸不平衡！借方總計 (${total_dr:,.2f}) 與貸方總計 (${total_cr:,.2f}) 不符。"})
-        conn.execute("DELETE FROM vouchers WHERE voucher_no = ?", (v_no,))
-        conn.execute("DELETE FROM voucher_items WHERE voucher_no = ?", (v_no,))
-        conn.execute("INSERT INTO vouchers VALUES (?, ?, ?, ?, ?, ?, ?)",
+        cursor.execute("DELETE FROM vouchers WHERE voucher_no = %s", (v_no,))
+        cursor.execute("DELETE FROM voucher_items WHERE voucher_no = %s", (v_no,))
+        cursor.execute("INSERT INTO vouchers VALUES (%s, %s, %s, %s, %s, %s, %s)",
                      (v_no, data.get("voucher_date"), data.get("voucher_type"), data.get("summary"),
                       data.get("preparer"), total_dr, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         for it in items:
-            conn.execute("INSERT INTO voucher_items (voucher_no, account_code, account_name, debit, credit) VALUES (?, ?, ?, ?, ?)",
+            cursor.execute("INSERT INTO voucher_items (voucher_no, account_code, account_name, debit, credit) VALUES (%s, %s, %s, %s, %s)",
                          (v_no, it.get("account_code"), it.get("account_name"), float(it.get("debit", 0)), float(it.get("credit", 0))))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 會計傳票存檔成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -632,9 +744,11 @@ def delete_voucher(v_no):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM vouchers WHERE voucher_no = ?", (v_no,))
-        conn.execute("DELETE FROM voucher_items WHERE voucher_no = ?", (v_no,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM vouchers WHERE voucher_no = %s", (v_no,))
+        cursor.execute("DELETE FROM voucher_items WHERE voucher_no = %s", (v_no,))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "✔ 傳票刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -642,14 +756,20 @@ def delete_voucher(v_no):
 @app.route("/api/finance/reports")
 def get_finance_reports():
     conn = get_db_connection()
-    v_items = conn.execute("SELECT account_code, account_name, SUM(debit) as dr, SUM(credit) as cr FROM voucher_items GROUP BY account_code").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT account_code, account_name, SUM(debit) as dr, SUM(credit) as cr FROM voucher_items GROUP BY account_code")
+    v_items = cursor.fetchall()
+    cursor.close()
     conn.close()
     return jsonify({"trial_balance": [dict(r) for r in v_items]})
 
 @app.route("/api/ar/search/<string:order_id>")
 def search_ar_record(order_id):
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM ar_records WHERE order_id = ? ORDER BY id ASC", (order_id.upper(),)).fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ar_records WHERE order_id = %s ORDER BY id ASC", (order_id.upper(),))
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     if not rows: return jsonify({"success": False, "message": "查無此訂單收款紀錄"})
     history = []
@@ -684,21 +804,25 @@ def save_ar_record():
     data = request.get_json()
     try:
         conn = get_db_connection()
+        cursor = conn.cursor()
         is_edit = data.get("isEditSpecificRow")
         target_id = data.get("targetRowIndex")
         if is_edit and target_id:
-            conn.execute("""UPDATE ar_records SET receive_amount=?, pay_type=?, check_no=?, check_due_date=?, receive_date=?, unpaid_amount=?, driver=?, driver_area=?, freight=?, old_item_fee=?, note=? WHERE id=?""",
-                         (data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
-                          data.get("receiveDate"), data.get("unpaidAmount"), data.get("driver"), data.get("driverArea"),
-                          data.get("freight"), data.get("oldItemFee"), data.get("note"), target_id))
+            cursor.execute("""
+                UPDATE ar_records SET receive_amount=%s, pay_type=%s, check_no=%s, check_due_date=%s, receive_date=%s, unpaid_amount=%s, driver=%s, driver_area=%s, freight=%s, old_item_fee=%s, note=%s WHERE id=%s
+            """, (data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
+                  data.get("receiveDate"), data.get("unpaidAmount"), data.get("driver"), data.get("driverArea"),
+                  data.get("freight"), data.get("oldItemFee"), data.get("note"), target_id))
         else:
-            conn.execute("""INSERT INTO ar_records (order_id, customer, sales_amount, deposit, receive_amount, pay_type, check_no, check_due_date, receive_date, unpaid_amount, driver, driver_area, freight, old_item_fee, keyin_user, note, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (data.get("orderId"), data.get("customer"), data.get("salesAmount"), data.get("deposit"),
-                          data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
-                          data.get("receiveDate"), data.get("unpaidAmount"), data.get("driver"), data.get("driverArea"),
-                          data.get("freight"), data.get("oldItemFee"), data.get("keyinUser"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            cursor.execute("""
+                INSERT INTO ar_records (order_id, customer, sales_amount, deposit, receive_amount, pay_type, check_no, check_due_date, receive_date, unpaid_amount, driver, driver_area, freight, old_item_fee, keyin_user, note, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (data.get("orderId"), data.get("customer"), data.get("salesAmount"), data.get("deposit"),
+                  data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
+                  data.get("receiveDate"), data.get("unpaidAmount"), data.get("driver"), data.get("driverArea"),
+                  data.get("freight"), data.get("oldItemFee"), data.get("keyinUser"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"success": True, "message": "🎉 收款紀錄儲存成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
@@ -709,12 +833,15 @@ def get_print_data():
     end = request.args.get("endDate", "")
     driver = request.args.get("driver", "ALL")
     conn = get_db_connection()
-    query = "SELECT * FROM ar_records WHERE receive_date BETWEEN ? AND ?"
+    cursor = conn.cursor()
+    query = "SELECT * FROM ar_records WHERE receive_date BETWEEN %s AND %s"
     params = [start, end]
     if driver != "ALL":
-        query += " AND driver = ?"
+        query += " AND driver = %s"
         params.append(driver)
-    rows = conn.execute(query, params).fetchall()
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    cursor.close()
     conn.close()
     lst = []
     for r in rows:
@@ -730,13 +857,18 @@ def get_print_data():
 @app.route("/api/ap/summary")
 def get_ap_summary():
     conn = get_db_connection()
-    invoices = conn.execute("SELECT * FROM ap_invoices").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ap_invoices")
+    invoices = cursor.fetchall()
     data = []
     for inv in invoices:
-        paid = conn.execute("SELECT SUM(pay_amount) as t FROM ap_payments WHERE inbound_no = ?", (inv["inbound_no"],)).fetchone()["t"] or 0
+        cursor.execute("SELECT SUM(pay_amount) as t FROM ap_payments WHERE inbound_no = %s", (inv["inbound_no"],))
+        p_res = cursor.fetchone()
+        paid = p_res["t"] if p_res and p_res["t"] else 0
         unpaid = inv["total_amount"] - paid
         status = "已結清" if unpaid <= 0 else ("部分付款" if paid > 0 else "未付")
         data.append({**dict(inv), "paid_amount": paid, "unpaid_amount": unpaid, "status": status})
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "data": data})
 
@@ -746,10 +878,12 @@ def save_payment():
     pay_no = "PAY" + datetime.now().strftime("%Y%m%d%H%M%S")
     try:
         conn = get_db_connection()
-        conn.execute("INSERT INTO ap_payments VALUES (?,?,?,?,?,?,?,?)",
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO ap_payments VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
             (pay_no, data.get("pay_date"), data.get("inbound_no"), data.get("vendor_name"),
              data.get("pay_amount"), data.get("pay_method"), data.get("remarks"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
+        cursor.close()
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error", "message": str(e)})
@@ -757,12 +891,16 @@ def save_payment():
 @app.route("/api/ap/search/<string:inbound_no>")
 def search_ap_record(inbound_no):
     conn = get_db_connection()
-    inv = conn.execute("SELECT * FROM ap_invoices WHERE inbound_no = ?", (inbound_no.upper(),)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ap_invoices WHERE inbound_no = %s", (inbound_no.upper(),))
+    inv = cursor.fetchone()
     if not inv:
+        cursor.close()
         conn.close()
         return jsonify({"success": False, "message": "查無此進貨單號的應付帳款紀錄"})
     
-    payments = conn.execute("SELECT * FROM ap_payments WHERE inbound_no = ? ORDER BY pay_date ASC", (inbound_no.upper(),)).fetchall()
+    cursor.execute("SELECT * FROM ap_payments WHERE inbound_no = %s ORDER BY pay_date ASC", (inbound_no.upper(),))
+    payments = cursor.fetchall()
     total_paid = sum(p["pay_amount"] for p in payments)
     unpaid = max(0, inv["total_amount"] - total_paid)
     
@@ -772,6 +910,7 @@ def search_ap_record(inbound_no):
             "payNo": p["pay_no"], "payDate": p["pay_date"], "vendorName": p["vendor_name"],
             "payAmount": p["pay_amount"], "payMethod": p["pay_method"], "remarks": p["remarks"]
         })
+    cursor.close()
     conn.close()
     return jsonify({
         "success": True,
@@ -787,10 +926,14 @@ def search_ap_record(inbound_no):
 @app.route("/api/ar/summary")
 def get_ar_summary():
     conn = get_db_connection()
-    invoices = conn.execute("SELECT * FROM ar_invoices").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM ar_invoices")
+    invoices = cursor.fetchall()
     data = []
     for inv in invoices:
-        collected = conn.execute("SELECT SUM(receive_amount) as t FROM ar_records WHERE order_id = ?", (inv["do_number"],)).fetchone()["t"] or 0
+        cursor.execute("SELECT SUM(receive_amount) as t FROM ar_records WHERE order_id = %s", (inv["do_number"],))
+        ar_res = cursor.fetchone()
+        collected = ar_res["t"] if ar_res and ar_res["t"] else 0
         uncollected = inv["total_amount"] - collected
         status = "已收清" if uncollected <= 0 else ("部分收款" if collected > 0 else "未收")
         data.append({
@@ -798,16 +941,23 @@ def get_ar_summary():
             "total_amount": inv["total_amount"], "payment_term": inv["payment_term"], "due_date": inv["due_date"],
             "collected_amount": collected, "uncollected_amount": uncollected, "status": status
         })
+    cursor.close()
     conn.close()
     return jsonify({"found": True, "data": data})
 
 @app.route("/api/finance/summary")
 def get_finance_summary():
     conn = get_db_connection()
-    total_ap = conn.execute("SELECT SUM(total_amount) FROM ap_invoices").fetchone()[0] or 0
-    paid_ap = conn.execute("SELECT SUM(pay_amount) FROM ap_payments").fetchone()[0] or 0
-    total_ar = conn.execute("SELECT SUM(total_amount) FROM ar_invoices").fetchone()[0] or 0
-    collected_ar = conn.execute("SELECT SUM(receive_amount) FROM ar_records").fetchone()[0] or 0
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(total_amount) FROM ap_invoices")
+    total_ap = cursor.fetchone()["sum"] or 0
+    cursor.execute("SELECT SUM(pay_amount) FROM ap_payments")
+    paid_ap = cursor.fetchone()["sum"] or 0
+    cursor.execute("SELECT SUM(total_amount) FROM ar_invoices")
+    total_ar = cursor.fetchone()["sum"] or 0
+    cursor.execute("SELECT SUM(receive_amount) FROM ar_records")
+    collected_ar = cursor.fetchone()["sum"] or 0
+    cursor.close()
     conn.close()
     return jsonify({
         "total_ap": total_ap, "paid_ap": paid_ap, "unpaid_ap": total_ap - paid_ap,
@@ -820,7 +970,10 @@ def get_finance_summary():
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
     conn = get_db_connection()
-    suppliers_list = conn.execute("SELECT * FROM suppliers ORDER BY supplier_code").fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM suppliers ORDER BY supplier_code")
+    suppliers_list = cursor.fetchall()
+    cursor.close()
     conn.close()
     return render_template_string(SUPPLIERS_HTML, suppliers=suppliers_list, user_name=session.get("user_name"))
 
@@ -828,10 +981,12 @@ def suppliers_page():
 def add_supplier():
     try:
         conn = get_db_connection()
-        conn.execute("INSERT INTO suppliers VALUES (?,?,?,?,?,?)",
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO suppliers VALUES (%s,%s,%s,%s,%s,%s)",
             (request.form["supplier_code"], request.form["supplier_name"], request.form["tax_id"],
              request.form["contact_info"], request.form["payment_terms"], request.form["bank_info"]))
         conn.commit()
+        cursor.close()
         conn.close()
     except: pass
     return redirect(url_for("suppliers_page"))
@@ -840,10 +995,12 @@ def add_supplier():
 def edit_supplier(code):
     try:
         conn = get_db_connection()
-        conn.execute("UPDATE suppliers SET supplier_name=?, tax_id=?, contact_info=?, payment_terms=?, bank_info=? WHERE supplier_code=?",
+        cursor = conn.cursor()
+        cursor.execute("UPDATE suppliers SET supplier_name=%s, tax_id=%s, contact_info=%s, payment_terms=%s, bank_info=%s WHERE supplier_code=%s",
             (request.form["supplier_name"], request.form["tax_id"], request.form["contact_info"],
              request.form["payment_terms"], request.form["bank_info"], code))
         conn.commit()
+        cursor.close()
         conn.close()
     except: pass
     return redirect(url_for("suppliers_page"))
@@ -897,7 +1054,6 @@ MAIN_HTML = """
     body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
     .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
     
-    /* 分群分類導覽列排版樣式 */
     .nav-header-wrapper { background: #0f172a; border-bottom: 3px solid var(--brand); padding: 10px 20px; }
     .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
     .nav-group-row:last-child { border-bottom: none; }
@@ -914,7 +1070,6 @@ MAIN_HTML = """
     .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
     .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
     
-    /* 公司資訊精緻排版 */
     .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.5; }
     .company-name-top { font-size: 14px; font-weight: 700; color: #f59e0b; margin-bottom: 3px; }
     .company-mid-row { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 3px; }
@@ -973,7 +1128,6 @@ MAIN_HTML = """
 <body>
 
 <div class="container" id="appContainer">
-  <!-- 公司基本資料表頭區塊（公司名稱、統編、電話、地址）置於最上方 -->
   <div class="po-header">
     <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ENTERPRISE MANAGEMENT SYSTEM</div></div>
     <div class="po-company-info">
@@ -983,7 +1137,6 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 結構化分類導覽列放置於公司資料下方 -->
   <div class="nav-header-wrapper">
     <div class="nav-group-row">
       <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
@@ -1479,7 +1632,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 13. 專業應付帳款管理 (AP Pro) - 新增：支援付款與結轉下期 -->
+  <!-- 13. 專業應付帳款管理 (AP Pro) - 支援付款與結轉下期 -->
   <div id="apProView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="input-group input-group-sm mb-3">
