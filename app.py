@@ -151,6 +151,7 @@ def login():
         print(f"DEBUG LOGIN ERROR: {str(e)}")
         raise e
 
+
 @app.route("/logout")
 def logout():
     session.clear()
@@ -196,6 +197,35 @@ def add_supplier():
         flash("供應商新增成功！", "success")
     except sqlite3.IntegrityError:
         flash("新增失敗：此供應商代號已存在！", "danger")
+
+    return redirect(url_for("suppliers"))
+
+
+# --- 修改供應商資料 ---
+@app.route("/suppliers/edit/<string:code>", methods=["POST"])
+def edit_supplier(code):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    name = request.form["supplier_name"]
+    tax_id = request.form["tax_id"]
+    contact = request.form["contact_info"]
+    terms = request.form["payment_terms"]
+    bank = request.form["bank_info"]
+
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            """UPDATE suppliers 
+               SET supplier_name = ?, tax_id = ?, contact_info = ?, payment_terms = ?, bank_info = ?
+               WHERE supplier_code = ?""",
+            (name, tax_id, contact, terms, bank, code),
+        )
+        conn.commit()
+        conn.close()
+        flash("供應商資料修改成功！", "success")
+    except Exception as e:
+        flash(f"修改失敗：{e}", "danger")
 
     return redirect(url_for("suppliers"))
 
