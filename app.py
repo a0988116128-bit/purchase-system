@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_ultimate_chart_of_accounts_2026"
+app.secret_key = "pezang_spacious_enterprise_pro_2026"
 
 DB_PATH = (
     "/tmp/database.db"
@@ -29,15 +29,6 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS inventory_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, safety_stock INTEGER DEFAULT 0, note TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS employees (emp_id TEXT PRIMARY KEY, emp_name TEXT NOT NULL, department TEXT, title TEXT, phone TEXT, hire_date TEXT, base_salary REAL DEFAULT 0, status TEXT DEFAULT '在職', note TEXT)")
         
-        # 完整會計科目表主檔 (Chart of Accounts)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chart_of_accounts (
-                account_code TEXT PRIMARY KEY,
-                account_name TEXT NOT NULL,
-                account_category TEXT NOT NULL
-            )
-        """)
-
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS payroll_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, emp_id TEXT, emp_name TEXT, pay_month TEXT,
@@ -111,10 +102,11 @@ def init_db():
             )
         """)
 
+        # 銷貨發票與進項發票系統
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS invoices (
                 invoice_no TEXT PRIMARY KEY, invoice_date TEXT, invoice_type TEXT,
-                customer_name TEXT, tax_id TEXT, sales_amount REAL, tax_amount REAL,
+                party_type TEXT DEFAULT '銷貨發票', entity_name TEXT, tax_id TEXT, sales_amount REAL, tax_amount REAL,
                 total_amount REAL, status TEXT DEFAULT '正常', note TEXT, created_at TEXT
             )
         """)
@@ -182,31 +174,6 @@ def init_db():
             )
         """)
 
-        # 預設會計科目初始化 (1~6級與常用科目)
-        cursor.execute("SELECT COUNT(*) FROM chart_of_accounts")
-        if cursor.fetchone()[0] == 0:
-            default_accounts = [
-                ("1101", "現金", "資產"),
-                ("1102", "銀行存款", "資產"),
-                ("1141", "應收票據", "資產"),
-                ("1148", "應收帳款", "資產"),
-                ("1201", "存貨", "資產"),
-                ("2141", "應付票據", "負債"),
-                ("2142", "應付帳款", "負債"),
-                ("3101", "資本主資本", "權益"),
-                ("3351", "保留盈餘", "權益"),
-                ("4111", "銷貨收入", "營業收入"),
-                ("5111", "銷貨成本", "營業成本"),
-                ("6111", "薪資費用", "營業費用"),
-                ("6141", "租金費用", "營業費用"),
-                ("6171", "運費", "營業費用"),
-                ("6181", "廣告費", "營業費用"),
-                ("6211", "水電瓦斯費", "營業費用"),
-                ("6221", "文具消耗品", "營業費用"),
-                ("6231", "勞健保費", "營業費用")
-            ]
-            cursor.executemany("INSERT INTO chart_of_accounts VALUES (?, ?, ?)", default_accounts)
-
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)",
@@ -216,6 +183,13 @@ def init_db():
         if cursor.fetchone()[0] == 0:
             cursor.executemany("INSERT INTO warehouses (warehouse_name) VALUES (?)",
                 [("八里倉",), ("南倉",), ("土城門市倉",), ("外倉",)])
+
+        cursor.execute("SELECT COUNT(*) FROM customers")
+        if cursor.fetchone()[0] == 0:
+            cursor.executemany("INSERT INTO customers VALUES (?, ?, ?, ?, ?)", [
+                ("C001", "王小明", "11223344", "0912-345678", "月結30天"),
+                ("C002", "林美華", "55667788", "0922-888999", "月結30天")
+            ])
 
         cursor.execute("SELECT COUNT(*) FROM employees")
         if cursor.fetchone()[0] == 0:
@@ -280,133 +254,45 @@ def get_customer(c_id):
     conn.close()
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
-@app.route("/api/accounts/list")
-def get_accounts():
+
+# --- 客戶建立 CRUD API ---
+@app.route("/api/customers/list")
+def get_customers():
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM chart_of_accounts ORDER BY account_code ASC").fetchall()
+    rows = conn.execute("SELECT * FROM customers ORDER BY customer_code").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
-
-# --- 訂單與銷貨 API ---
-@app.route("/api/so/save", methods=["POST"])
-def save_so():
-    if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
-    data = request.get_json()
-    so_no = data.get("so_no")
-    try:
-        conn = get_db_connection()
-        conn.execute("DELETE FROM sales_orders WHERE so_number = ?", (so_no,))
-        conn.execute("DELETE FROM sales_items WHERE so_number = ?", (so_no,))
-        
-        grand_total = float(data.get("grand_total", 0))
-        deposit_paid = float(data.get("deposit_paid", 0))
-        balance_due = max(0, grand_total - deposit_paid)
-
-        conn.execute("INSERT INTO sales_orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (so_no, data.get("sales_person"), data.get("order_date"), data.get("customer_code"),
-             data.get("customer_name"), data.get("currency"), grand_total, deposit_paid,
-             data.get("pay_method", "現金"), balance_due, data.get("remark"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        
-        for item in data.get("items", []):
-            conn.execute("INSERT INTO sales_items (so_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?)",
-                (so_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                 item.get("qty"), item.get("unit_price"), item.get("total"), item.get("remarks")))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)})
-
-@app.route("/api/so/<string:so_no>")
-def get_so(so_no):
-    conn = get_db_connection()
-    so = conn.execute("SELECT * FROM sales_orders WHERE so_number = ?", (so_no,)).fetchone()
-    if not so:
-        conn.close()
-        return jsonify({"found": False, "message": "找不到客戶訂單"})
-    items = [dict(r) for r in conn.execute("SELECT model, product_name as name, specification as size, color, quantity as qty, unit_price, subtotal as total, remarks FROM sales_items WHERE so_number = ?", (so_no,)).fetchall()]
-    conn.close()
-    return jsonify({"found": True, "header": dict(so), "items": items})
-
-
-# --- 信用卡金流 API ---
-@app.route("/api/creditcard/list")
-def get_creditcard_txns():
-    conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM credit_card_txns ORDER BY txn_date DESC").fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-@app.route("/api/creditcard/save", methods=["POST"])
-def save_creditcard_txn():
+@app.route("/api/customers/save", methods=["POST"])
+def save_customer():
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     data = request.get_json()
     try:
         conn = get_db_connection()
-        conn.execute("""INSERT INTO credit_card_txns (order_id, customer_name, txn_type, amount, auth_code, card_last4, txn_date, note, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                     (data.get("order_id"), data.get("customer_name"), data.get("txn_type", "刷卡收入"),
-                      float(data.get("amount", 0)), data.get("auth_code"), data.get("card_last4"),
-                      data.get("txn_date"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.execute("""INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(customer_code) DO UPDATE SET customer_name=?, tax_id=?, contact_info=?, payment_terms=?""",
+                     (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
+                      data.get("contact_info"), data.get("payment_terms"),
+                      data.get("customer_name"), data.get("tax_id"), data.get("contact_info"), data.get("payment_terms")))
         conn.commit()
         conn.close()
-        return jsonify({"success": True, "message": "✔ 信用卡交易/退刷紀錄存檔成功！"})
+        return jsonify({"success": True, "message": "✔ 客戶資料存檔/修改成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-@app.route("/api/creditcard/delete/<int:txn_id>", methods=["POST"])
-def delete_creditcard_txn(txn_id):
+@app.route("/api/customers/delete/<string:c_code>", methods=["POST"])
+def delete_customer(c_code):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
-        conn.execute("DELETE FROM credit_card_txns WHERE txn_id = ?", (txn_id,))
+        conn.execute("DELETE FROM customers WHERE customer_code = ?", (c_code,))
         conn.commit()
         conn.close()
-        return jsonify({"success": True, "message": "✔ 信用卡紀錄刪除成功！"})
+        return jsonify({"success": True, "message": "✔ 客戶刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 
-# --- 發票系統 API ---
-@app.route("/api/invoices/list")
-def get_invoices():
-    conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM invoices ORDER BY invoice_date DESC").fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-@app.route("/api/invoices/save", methods=["POST"])
-def save_invoice():
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    data = request.get_json()
-    try:
-        conn = get_db_connection()
-        amt = float(data.get("sales_amount", 0))
-        tax = float(data.get("tax_amount", 0))
-        total = amt + tax
-        conn.execute("""INSERT INTO invoices (invoice_no, invoice_date, invoice_type, customer_name, tax_id, sales_amount, tax_amount, total_amount, status, note, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(invoice_no) DO UPDATE SET invoice_date=?, invoice_type=?, customer_name=?, tax_id=?, sales_amount=?, tax_amount=?, total_amount=?, status=?, note=?""",
-                     (data.get("invoice_no"), data.get("invoice_date"), data.get("invoice_type"), data.get("customer_name"),
-                      data.get("tax_id"), amt, tax, total, data.get("status", "正常"), data.get("note"),
-                      data.get("invoice_date"), data.get("invoice_type"), data.get("customer_name"), data.get("tax_id"),
-                      amt, tax, total, data.get("status", "正常"), data.get("note")))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 發票開立/修改成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/invoices/delete/<string:inv_no>", methods=["POST"])
-def delete_invoice(inv_no):
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    try:
-        conn = get_db_connection()
-        conn.execute("DELETE FROM invoices WHERE invoice_no = ?", (inv_no,))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 發票刪除成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
-
-# --- 其他原有 CRUD API ---
+# --- 員工與薪資 CRUD API ---
 @app.route("/api/employees/list")
 def get_employees():
     conn = get_db_connection()
@@ -488,6 +374,8 @@ def delete_payroll(pay_id):
         return jsonify({"success": True, "message": "✔ 薪資紀錄刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
+
+# --- 採購與進貨 API ---
 @app.route("/api/po/save", methods=["POST"])
 def save_po():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -927,7 +815,7 @@ def get_finance_summary():
     })
 
 
-# --- 供應商管理頁面 ---
+# --- 供應商與客戶管理頁面 ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
@@ -1007,11 +895,11 @@ MAIN_HTML = """
     :root { --primary: #0f172a; --brand: #c59b27; --border: #cbd5e1; --text: #1e293b; --bg-main: #f8fafc; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif; }
     body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
-    .container { width: 100%; max-width: 1260px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
+    .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
     
     .nav-tabs { background: #0f172a; padding: 12px 20px; display: flex; gap: 6px; border-bottom: 3px solid var(--brand); justify-content: space-between; align-items: center; flex-wrap: wrap; }
     .nav-tabs-left { display: flex; gap: 5px; flex-wrap: wrap; }
-    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 6px 10px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
+    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 6px 11px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
     .tab-btn:hover { background: #334155; color: #fff; }
     .tab-btn.active { background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(197, 155, 39, 0.4); }
     .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
@@ -1022,24 +910,24 @@ MAIN_HTML = """
     .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
     .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.6; }
     
-    form { padding: 22px 30px 40px 30px; }
-    .section-block { margin-bottom: 16px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-    .section-title { font-size: 13.5px; font-weight: 700; color: var(--primary); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; display: flex; align-items: center; gap: 6px; }
+    form { padding: 25px 35px 45px 35px; }
+    .section-block { margin-bottom: 18px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .section-title { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 14px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; display: flex; align-items: center; gap: 6px; }
     .section-title::before { content: ""; width: 4px; height: 13px; background: var(--brand); border-radius: 2px; }
     
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
     label { font-size: 12px; font-weight: 600; color: #475569; }
     .required::after { content: " *"; color: #dc2626; }
     
-    input, select, textarea { padding: 7px 10px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); outline: none; width: 100%; transition: border-color 0.2s, box-shadow 0.2s; }
+    input, select, textarea { padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); outline: none; width: 100%; transition: border-color 0.2s, box-shadow 0.2s; }
     input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(197, 155, 39, 0.15); }
     .readonly { background: #f8fafc; color: #475569; font-weight: 600; }
     
-    .items-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
-    .items-table th { background: #f8fafc; color: #334155; font-size: 12px; padding: 9px 8px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 600; }
-    .items-table td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; vertical-align: middle; font-size: 12.5px; background: #fff; }
+    .items-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 8px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+    .items-table th { background: #f8fafc; color: #334155; font-size: 12px; padding: 10px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 600; }
+    .items-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; vertical-align: middle; font-size: 12.5px; background: #fff; }
     .items-table tr:last-child td { border-bottom: none; }
     
     .input-qty { text-align: center; } .input-price { text-align: right; } .input-total { text-align: right; }
@@ -1047,7 +935,7 @@ MAIN_HTML = """
     
     .btn-add-item { background: #0f172a; color: #fff; border: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
     .btn-del-item { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 3px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; }
-    .btn-query { background: #0f172a; color: #fff; border: none; padding: 7px 10px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .btn-query { background: #0f172a; color: #fff; border: none; padding: 8px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
     
     .floating-action-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-top: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: center; gap: 10px; z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.06); }
     .btn-submit { background: linear-gradient(135deg, var(--brand) 0%, #a68120 100%); color: #fff; font-size: 13px; font-weight: 700; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(197,155,39,0.3); }
@@ -1055,12 +943,12 @@ MAIN_HTML = """
     .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
     .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
     
-    .finance-group { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
-    .inventory-group { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
-    .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; margin-top: 8px; }
-    .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-    .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-top: 14px; }
-    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .finance-group { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+    .inventory-group { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+    .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 12px; margin-top: 10px; }
+    .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-top: 16px; }
+    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
     
     .app-view { display: none; } .app-view.active { display: block; }
     
@@ -1082,6 +970,7 @@ MAIN_HTML = """
       <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
       <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
       <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存管理</button>
+      <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
       <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
       <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績</button>
       <button type="button" class="tab-btn" id="btnTabCreditCard" onclick="switchTab('creditCard')">💳 刷卡/退刷</button>
@@ -1108,25 +997,25 @@ MAIN_HTML = """
         <div class="section-title">一、 採購基本資料與查詢修改</div>
         <div class="grid-3">
           <div class="form-group"><label class="required">採購人員</label><input type="text" id="po_buyer_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:4px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">訂購日期</label><input type="date" id="po_order_date" required></div>
         </div>
-        <div class="grid-2" style="margin-top:10px;">
+        <div class="grid-2" style="margin-top:12px;">
           <div class="form-group"><label class="required">交貨日期</label><input type="date" id="po_delivery_date" required></div>
           <div class="form-group"><label class="required">Price Term</label><input type="text" id="po_price_term" required></div>
         </div>
-        <div class="grid-3" style="margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:10px;">
+        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
           <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
           <div class="form-group"><label>廠商編號</label><input type="text" id="po_vendor_id" onblur="lookupVendorName('po')"></div>
           <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" required></div>
         </div>
-        <div class="grid-2" style="margin-top:10px;">
+        <div class="grid-2" style="margin-top:12px;">
           <div class="form-group"><label class="required">幣別</label><select id="po_currency" required onchange="calculatePoTotals()"><option value="" disabled selected hidden>請選擇</option><option value="USD">USD</option><option value="NTD">NTD</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="JPY">JPY</option></select></div>
           <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
         </div>
       </div>
       <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
           <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細</div>
           <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
         </div>
@@ -1139,14 +1028,14 @@ MAIN_HTML = """
       <div class="section-block">
         <div class="section-title">三、 付款與裝運設定</div>
         <div class="grid-2">
-          <div class="form-group"><label>訂金比例 (%) / 金額</label><div style="display:flex; gap:6px;"><input type="number" id="po_dep_pct" style="width:75px;" oninput="calculatePoTotals()"><input type="text" id="po_dep_amt" class="readonly" readonly style="flex:1;"></div></div>
-          <div class="form-group"><label>尾款比例 (%) / 金額</label><div style="display:flex; gap:6px;"><input type="number" id="po_bal_pct" class="readonly" style="width:75px;" readonly><input type="text" id="po_bal_amt" class="readonly" readonly style="flex:1;"></div></div>
+          <div class="form-group"><label>訂金比例 (%) / 金額</label><div style="display:flex; gap:8px;"><input type="number" id="po_dep_pct" style="width:80px;" oninput="calculatePoTotals()"><input type="text" id="po_dep_amt" class="readonly" readonly style="flex:1;"></div></div>
+          <div class="form-group"><label>尾款比例 (%) / 金額</label><div style="display:flex; gap:8px;"><input type="number" id="po_bal_pct" class="readonly" style="width:80px;" readonly><input type="text" id="po_bal_amt" class="readonly" readonly style="flex:1;"></div></div>
         </div>
-        <div class="grid-2" style="margin-top:10px;">
+        <div class="grid-2" style="margin-top:12px;">
           <div class="form-group"><label>Shipping Mark</label><input type="text" id="po_shipping_mark"></div>
           <div class="form-group"><label>Packing</label><input type="text" id="po_packing"></div>
         </div>
-        <div class="form-group" style="margin-top:10px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
+        <div class="form-group" style="margin-top:12px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
       </div>
     </form>
   </div>
@@ -1162,15 +1051,15 @@ MAIN_HTML = """
         <div class="section-title">一、 進貨基本資料與採購單轉入</div>
         <div class="grid-3">
           <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:4px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
         </div>
-        <div class="grid-3" style="margin-top:10px;">
+        <div class="grid-3" style="margin-top:12px;">
           <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
           <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
-          <div class="form-group"><label>廠商編號</label><div style="display:flex; gap:4px;"><input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
+          <div class="form-group"><label>廠商編號</label><div style="display:flex; gap:6px;"><input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
         </div>
-        <div class="grid-2" style="margin-top:10px;"><div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div></div>
+        <div class="grid-2" style="margin-top:12px;"><div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div></div>
       </div>
       <div class="section-block">
         <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
@@ -1183,7 +1072,7 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 3. 客戶訂單系統 (含訂金與付款方式計算尾款) -->
+  <!-- 3. 客戶訂單系統 -->
   <div id="soView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES ORDER (客戶訂單與訂金管理)</div></div>
@@ -1194,31 +1083,29 @@ MAIN_HTML = """
         <div class="section-title">一、 客戶訂單基本資料與訂金設定</div>
         <div class="grid-3">
           <div class="form-group"><label class="required">業務人員</label><input type="text" id="so_sales_person" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">訂單編號</label><div style="display:flex; gap:4px;"><input type="text" id="so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="querySoRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">訂單編號</label><div style="display:flex; gap:6px;"><input type="text" id="so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="querySoRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">訂單日期</label><input type="date" id="so_order_date" required></div>
         </div>
-        <div class="grid-3" style="margin-top:10px;">
+        <div class="grid-3" style="margin-top:12px;">
           <div class="form-group"><label>客戶編號</label><input type="text" id="so_customer_code" onblur="lookupCustomerName()"></div>
           <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="so_customer_name" required></div>
           <div class="form-group"><label class="required">幣別</label><select id="so_currency" required><option value="NTD" selected>NTD</option><option value="USD">USD</option></select></div>
         </div>
-        <div class="grid-3" style="margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:10px;">
+        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
           <div class="form-group"><label class="required">付款方式 (訂金)</label><select id="so_pay_method" class="form-select form-select-sm"><option value="現金" selected>現金</option><option value="匯款">匯款</option><option value="信用卡">信用卡</option><option value="支票">支票</option></select></div>
           <div class="form-group"><label class="required">已付訂金 ($)</label><input type="number" id="so_deposit_paid" class="form-control form-control-sm" value="0" step="0.01" oninput="calculateSoTotals()"></div>
           <div class="form-group"><label class="text-danger fw-bold">剩餘未付尾款 ($)</label><input type="number" id="so_balance_due" class="form-control form-control-sm readonly text-danger fw-bold" value="0" readonly></div>
         </div>
       </div>
       <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
           <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 訂單品項明細</div>
           <button type="button" class="btn-add-item" onclick="addSoItemRow()">＋ 新增品項</button>
         </div>
         <table class="items-table">
           <thead><tr><th style="width:16%;">型號</th><th style="width:20%;">品名</th><th style="width:14%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
           <tbody id="soItemsBody"></tbody>
-          <tfoot>
-            <tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr>
-          </tfoot>
+          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr></tfoot>
         </table>
       </div>
       <div class="section-block"><div class="form-group"><label>備註說明</label><textarea id="so_remark" rows="2"></textarea></div></div>
@@ -1236,15 +1123,15 @@ MAIN_HTML = """
         <div class="section-title">一、 出貨基本資料與訂單轉入</div>
         <div class="grid-3">
           <div class="form-group"><label class="required">出貨人員</label><input type="text" id="do_shipper_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">出貨單號</label><div style="display:flex; gap:4px;"><input type="text" id="do_number" required style="flex:1;"><button type="button" class="btn-query" onclick="queryDeliveryRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">出貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="do_number" required style="flex:1;"><button type="button" class="btn-query" onclick="queryDeliveryRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">出貨日期</label><input type="date" id="do_date" required></div>
         </div>
-        <div class="grid-3" style="margin-top:10px;">
-          <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:4px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入SO</button></div></div>
+        <div class="grid-3" style="margin-top:12px;">
+          <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:6px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入SO</button></div></div>
           <div class="form-group"><label>客戶編號</label><input type="text" id="do_customer_code"></div>
           <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="do_customer_name" class="readonly" readonly required></div>
         </div>
-        <div class="grid-2" style="margin-top:10px;">
+        <div class="grid-2" style="margin-top:12px;">
           <div class="form-group"><label class="required">送貨司機 / 倉別</label><select id="do_driver" class="form-select form-select-sm" required><option value="大蔡" selected>大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option></select></div>
           <div class="form-group"><label class="required">運費金額 ($)</label><input type="number" id="do_manual_freight" class="form-control form-control-sm" value="0" min="0" required></div>
         </div>
@@ -1302,7 +1189,44 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 6. 進退/銷退單據系統 -->
+  <!-- 6. 客戶建立系統 (Customer Master) -->
+  <div id="customerView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CUSTOMER MASTER (客戶資料主檔建立)</div></div>
+      <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
+    </div>
+    <div style="padding:22px 30px;">
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">📇 客戶資料建檔與維護（新增或修改）</h6>
+        <form id="customerForm" onsubmit="handleCustomerSave(event)" style="padding:0;">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">客戶代號 *</label><input type="text" id="custCode" class="form-control form-control-sm" placeholder="例: C004" required></div>
+            <div class="col-3"><label class="form-label">客戶名稱 / 抬頭 *</label><input type="text" id="custName" class="form-control form-control-sm" placeholder="客戶姓名或公司" required></div>
+            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="custTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
+            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="custPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-6"><label class="form-label">付款條件</label><input type="text" id="custTerms" class="form-control form-control-sm" value="月結30天"></div>
+            <div class="col-6 d-flex align-items-end gap-1">
+              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存客戶</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetCustForm()">重設</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📋 客戶主檔清單</h6>
+        <button class="btn-query btn-sm" onclick="loadCustomers()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>客戶代號</th><th>客戶名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="custTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 7. 進退/銷退單據系統 -->
   <div id="transView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY TRANSACTION (進退/銷退單據)</div></div>
@@ -1334,7 +1258,7 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 7. 業務業績統計系統 -->
+  <!-- 8. 業務業績統計系統 -->
   <div id="salesPerfView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES PERFORMANCE (業務人員業績與獎金統計)</div></div>
@@ -1381,7 +1305,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 8. 信用卡刷卡與退刷管理系統 -->
+  <!-- 9. 信用卡刷卡與退刷管理系統 -->
   <div id="creditCardView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CREDIT CARD TRANSACTIONS (信用卡刷卡與退刷管理)</div></div>
@@ -1417,27 +1341,28 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 9. 發票系統 -->
+  <!-- 10. 發票系統 -->
   <div id="invoiceView" class="app-view">
     <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVOICE SYSTEM (發票開立與管理)</div></div>
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVOICE SYSTEM (銷貨與進項發票管理)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">🧾 發票開立與維護（二聯式 / 三聯式）</h6>
+        <h6 class="fw-bold text-primary mb-2">🧾 發票開立與進項登錄維護</h6>
         <form id="invoiceForm" onsubmit="handleInvoiceSave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">發票號碼 *</label><input type="text" id="invNo" class="form-control form-control-sm" placeholder="例: AB12345678" required></div>
             <div class="col-3"><label class="form-label">發票日期 *</label><input type="date" id="invDate" class="form-control form-control-sm" required></div>
             <div class="col-3"><label class="form-label">發票類型 *</label><select id="invType" class="form-select form-select-sm"><option value="二聯式" selected>二聯式</option><option value="三聯式">三聯式</option></select></div>
-            <div class="col-3"><label class="form-label">客戶抬頭 *</label><input type="text" id="invCust" class="form-control form-control-sm" placeholder="客戶名稱/抬頭" required></div>
+            <div class="col-3"><label class="form-label">類別 *</label><select id="partyType" class="form-select form-select-sm"><option value="銷貨發票" selected>銷貨發票 (開立)</option><option value="進項發票">進項發票 (收到)</option></select></div>
           </div>
           <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">統一編號 (三聯)</label><input type="text" id="invTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
-            <div class="col-3"><label class="form-label">銷售未稅金額 ($) *</label><input type="number" id="invSalesAmt" class="form-control form-control-sm" value="0" step="0.01" oninput="calcInvTax()" required></div>
-            <div class="col-3"><label class="form-label">營業稅額 (5%) ($)</label><input type="number" id="invTaxAmt" class="form-control form-control-sm" value="0" step="0.01"></div>
-            <div class="col-3"><label class="form-label text-success fw-bold">發票總計 ($)</label><input type="number" id="invTotalAmt" class="form-control form-control-sm readonly text-success fw-bold" readonly></div>
+            <div class="col-3"><label class="form-label">對象名稱 (客戶/廠商) *</label><input type="text" id="invCust" class="form-control form-control-sm" placeholder="名稱/抬頭" required></div>
+            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="invTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
+            <div class="col-2"><label class="form-label">銷售未稅 ($) *</label><input type="number" id="invSalesAmt" class="form-control form-control-sm" value="0" step="0.01" oninput="calcInvTax()" required></div>
+            <div class="col-2"><label class="form-label">營業稅 (5%) ($)</label><input type="number" id="invTaxAmt" class="form-control form-control-sm" value="0" step="0.01"></div>
+            <div class="col-2"><label class="form-label text-success fw-bold">發票總計 ($)</label><input type="number" id="invTotalAmt" class="form-control form-control-sm readonly text-success fw-bold" readonly></div>
           </div>
           <div class="row g-2 mt-2">
             <div class="col-3"><label class="form-label">狀態</label><select id="invStatus" class="form-select form-select-sm"><option value="正常" selected>正常</option><option value="作廢">作廢</option><option value="折讓">折讓</option></select></div>
@@ -1448,17 +1373,17 @@ MAIN_HTML = """
       </div>
 
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 已開立發票清單</h6>
+        <h6 class="fw-bold text-dark mb-0">📜 已建檔發票明細清單</h6>
         <button class="btn-query btn-sm" onclick="loadInvoices()">🔄 重新整理</button>
       </div>
       <table class="items-table">
-        <thead><tr><th>發票號碼</th><th>日期</th><th>類型</th><th>客戶抬頭</th><th>統編</th><th>未稅金額</th><th>稅額</th><th>總計</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
+        <thead><tr><th>發票號碼</th><th>日期</th><th>類型</th><th>類別</th><th>對象名稱</th><th>統編</th><th>未稅金額</th><th>稅額</th><th>總計</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="invoiceTableBody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 10. 人事名冊 (HR) -->
+  <!-- 11. 人事名冊 (HR) -->
   <div id="hrView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>HR MANAGEMENT (員工與新進人員名冊)</div></div>
@@ -1498,7 +1423,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 11. 薪資發放系統 (Payroll) -->
+  <!-- 12. 薪資發放系統 (Payroll) -->
   <div id="payrollView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PAYROLL SYSTEM (員工薪資與發放管理)</div></div>
@@ -1557,7 +1482,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 12. 專業應收帳款管理 (AR Pro) -->
+  <!-- 13. 專業應收帳款管理 (AR Pro) -->
   <div id="arProView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
@@ -1646,7 +1571,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 13. 司機運費對帳系統 -->
+  <!-- 14. 司機運費對帳系統 -->
   <div id="printCenterView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER FREIGHT RECONCILIATION (司機運費對帳系統)</div></div>
@@ -1673,7 +1598,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 14. 應付帳款系統 -->
+  <!-- 15. 應付帳款系統 -->
   <div id="apView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款管理)</div></div>
@@ -1698,7 +1623,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 15. 應收帳款系統 -->
+  <!-- 16. 應收帳款系統 -->
   <div id="arView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款管理)</div></div>
@@ -1723,7 +1648,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 16. 財務系統 -->
+  <!-- 17. 財務系統 -->
   <div id="financeView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD & VOUCHERS (會計傳票與四大財務報表)</div></div>
@@ -1842,6 +1767,7 @@ MAIN_HTML = """
   let warehouseOptionsList = ['八里倉', '南倉', '土城門市倉', '外倉'];
   let cachedInventory = [];
   let cachedEmployees = [];
+  let cachedCustomers = [];
   let arBaseOrder = null;
   let arEditTargetRow = 0;
 
@@ -1861,6 +1787,7 @@ MAIN_HTML = """
     for (let i = 0; i < 4; i++) { addPoItemRow(); addSoItemRow(); }
     fetch('/api/warehouses').then(r => r.json()).then(d => { if (d && d.length) warehouseOptionsList = d; });
     loadInventory();
+    loadCustomers();
     loadEmployees();
     loadPayroll();
     loadSalesPerformance();
@@ -1873,13 +1800,14 @@ MAIN_HTML = """
 
   function switchTab(tab) {
     currentTab = tab;
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
       if(view) view.className = (t === tab) ? 'app-view active' : 'app-view';
     });
     if (tab === 'inventory') loadInventory();
+    else if (tab === 'customer') loadCustomers();
     else if (tab === 'trans') prepareTransForm();
     else if (tab === 'salesPerf') loadSalesPerformance();
     else if (tab === 'creditCard') loadCreditCardTxns();
@@ -1917,6 +1845,7 @@ MAIN_HTML = """
     else if (currentTab === 'trans') document.getElementById('transForm').requestSubmit();
     else if (currentTab === 'arPro') document.getElementById('arForm').requestSubmit();
     else if (currentTab === 'inventory') document.getElementById('inventoryForm').requestSubmit();
+    else if (currentTab === 'customer') document.getElementById('customerForm').requestSubmit();
     else if (currentTab === 'salesPerf') document.getElementById('salesPerfForm').requestSubmit();
     else if (currentTab === 'creditCard') document.getElementById('ccForm').requestSubmit();
     else if (currentTab === 'invoice') document.getElementById('invoiceForm').requestSubmit();
@@ -2324,6 +2253,68 @@ MAIN_HTML = """
     document.getElementById('invSku').readOnly = false;
   }
 
+  // 客戶建立管理 (Customer Master CRUD)
+  function loadCustomers() {
+    fetch('/api/customers/list').then(r => r.json()).then(data => {
+      cachedCustomers = data || [];
+      const tb = document.getElementById('custTableBody'); tb.innerHTML = '';
+      if (!cachedCustomers.length) { tb.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-muted">尚無客戶資料</td></tr>`; return; }
+      cachedCustomers.forEach(c => {
+        tb.innerHTML += `<tr>
+          <td><strong>${c.customer_code}</strong></td>
+          <td class="text-start">${c.customer_name}</td>
+          <td>${c.tax_id||'-'}</td>
+          <td>${c.contact_info||'-'}</td>
+          <td>${c.payment_terms||'月結30天'}</td>
+          <td class="text-center no-print">
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editCustomer(${JSON.stringify(c)})'>✏️ 修改</button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteCustomer('${c.customer_code}')">🗑️ 刪除</button>
+          </td>
+        </tr>`;
+      });
+    });
+  }
+
+  function handleCustomerSave(e) {
+    e.preventDefault();
+    const payload = {
+      customer_code: document.getElementById('custCode').value.trim(),
+      customer_name: document.getElementById('custName').value.trim(),
+      tax_id: document.getElementById('custTaxId').value.trim(),
+      contact_info: document.getElementById('custPhone').value.trim(),
+      payment_terms: document.getElementById('custTerms').value.trim()
+    };
+    fetch('/api/customers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { resetCustForm(); loadCustomers(); }
+      });
+  }
+
+  function editCustomer(c) {
+    document.getElementById('custCode').value = c.customer_code;
+    document.getElementById('custCode').readOnly = true;
+    document.getElementById('custName').value = c.customer_name;
+    document.getElementById('custTaxId').value = c.tax_id || '';
+    document.getElementById('custPhone').value = c.contact_info || '';
+    document.getElementById('custTerms').value = c.payment_terms || '月結30天';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  function deleteCustomer(code) {
+    if (confirm(`確定要刪除客戶【${code}】嗎？`)) {
+      fetch(`/api/customers/delete/${code}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadCustomers();
+      });
+    }
+  }
+
+  function resetCustForm() {
+    document.getElementById('customerForm').reset();
+    document.getElementById('custCode').readOnly = false;
+  }
+
   function prepareTransForm() {
     const sel = document.getElementById('transSkuSelect');
     sel.innerHTML = '<option value="">-- 請選擇商品 --</option>';
@@ -2504,12 +2495,13 @@ MAIN_HTML = """
   function loadInvoices() {
     fetch('/api/invoices/list').then(r => r.json()).then(data => {
       const tb = document.getElementById('invoiceTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">尚無發票開立紀錄</td></tr>`; return; }
+      if (!data.length) { tb.innerHTML = `<tr><td colspan="11" class="text-center py-3 text-muted">尚無發票開立紀錄</td></tr>`; return; }
       data.forEach(i => {
         tb.innerHTML += `<tr>
           <td><strong>${i.invoice_no}</strong></td>
           <td>${i.invoice_date}</td>
           <td>${i.invoice_type}</td>
+          <td><span class="badge ${i.party_type==='銷貨發票'?'bg-primary':'bg-info'}">${i.party_type}</span></td>
           <td>${i.customer_name}</td>
           <td>${i.tax_id||'-'}</td>
           <td class="text-end">$${i.sales_amount.toLocaleString()}</td>
@@ -2528,6 +2520,7 @@ MAIN_HTML = """
       invoice_no: document.getElementById('invNo').value.trim(),
       invoice_date: document.getElementById('invDate').value,
       invoice_type: document.getElementById('invType').value,
+      party_type: document.getElementById('partyType').value,
       customer_name: document.getElementById('invCust').value.trim(),
       tax_id: document.getElementById('invTaxId').value.trim(),
       sales_amount: parseFloat(document.getElementById('invSalesAmt').value) || 0,
@@ -3169,7 +3162,42 @@ SUPPLIERS_HTML = """
 </html>
 """
 
-# API 路由補充：庫存、員工與薪資 CRUD
+# API 路由補充：客戶、庫存、發票 CRUD
+@app.route("/api/customers/list")
+def api_get_customers():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM customers ORDER BY customer_code").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/customers/save", methods=["POST"])
+def api_save_customer():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        conn.execute("""INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(customer_code) DO UPDATE SET customer_name=?, tax_id=?, contact_info=?, payment_terms=?""",
+                     (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
+                      data.get("contact_info"), data.get("payment_terms"),
+                      data.get("customer_name"), data.get("tax_id"), data.get("contact_info"), data.get("payment_terms")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 客戶資料存檔/修改成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/customers/delete/<string:c_code>", methods=["POST"])
+def api_delete_customer(c_code):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM customers WHERE customer_code = ?", (c_code,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 客戶刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
 @app.route("/api/inventory/save", methods=["POST"])
 def api_save_inventory():
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
