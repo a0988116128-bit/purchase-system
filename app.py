@@ -3215,17 +3215,6 @@ def api_save_inventory():
         return jsonify({"success": True, "message": "✔ 商品存檔/修改成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-@app.route("/api/inventory/delete/<string:sku>", methods=["POST"])
-def api_delete_inventory(sku):
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    try:
-        conn = get_db_connection()
-        conn.execute("DELETE FROM inventory_items WHERE sku = ?", (sku,))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 商品刪除成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
