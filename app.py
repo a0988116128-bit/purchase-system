@@ -21,97 +21,99 @@ def get_db_connection():
 
 
 def init_db():
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    # 1. 使用者資料表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            password TEXT NOT NULL
-        )
-    """)
+        # 1. 使用者資料表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                password TEXT NOT NULL
+            )
+        """)
 
-    # 2. 供應商主檔資料表
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS suppliers (
-            supplier_code TEXT PRIMARY KEY,
-            supplier_name TEXT NOT NULL,
-            tax_id TEXT,
-            contact_info TEXT,
-            payment_terms TEXT,
-            bank_info TEXT
-        )
-    """)
+        # 2. 供應商主檔資料表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS suppliers (
+                supplier_code TEXT PRIMARY KEY,
+                supplier_name TEXT NOT NULL,
+                tax_id TEXT,
+                contact_info TEXT,
+                payment_terms TEXT,
+                bank_info TEXT
+            )
+        """)
 
-    # 3. 採購單主檔 (Purchase Orders)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS purchase_orders (
-            po_number TEXT PRIMARY KEY,
-            purchaser TEXT NOT NULL,
-            order_date TEXT NOT NULL,
-            delivery_date TEXT,
-            price_term TEXT,
-            supplier_code TEXT,
-            currency TEXT,
-            grand_total REAL,
-            deposit_pct REAL,
-            deposit_amount REAL,
-            balance_pct REAL,
-            balance_amount REAL,
-            remark TEXT,
-            shipping_mark TEXT,
-            packing TEXT,
-            bank_info TEXT,
-            created_at TEXT,
-            FOREIGN KEY (supplier_code) REFERENCES suppliers (supplier_code)
-        )
-    """)
+        # 3. 採購單主檔 (Purchase Orders)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_orders (
+                po_number TEXT PRIMARY KEY,
+                purchaser TEXT NOT NULL,
+                order_date TEXT NOT NULL,
+                delivery_date TEXT,
+                price_term TEXT,
+                supplier_code TEXT,
+                currency TEXT,
+                grand_total REAL,
+                deposit_pct REAL,
+                deposit_amount REAL,
+                balance_pct REAL,
+                balance_amount REAL,
+                remark TEXT,
+                shipping_mark TEXT,
+                packing TEXT,
+                bank_info TEXT,
+                created_at TEXT
+            )
+        """)
 
-    # 4. 採購單明細 (Purchase Items)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS purchase_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            po_number TEXT NOT NULL,
-            model TEXT,
-            product_name TEXT,
-            specification TEXT,
-            color TEXT,
-            quantity INTEGER,
-            unit_price REAL,
-            subtotal REAL,
-            FOREIGN KEY (po_number) REFERENCES purchase_orders (po_number)
-        )
-    """)
+        # 4. 採購單明細 (Purchase Items)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                po_number TEXT NOT NULL,
+                model TEXT,
+                product_name TEXT,
+                specification TEXT,
+                color TEXT,
+                quantity INTEGER,
+                unit_price REAL,
+                subtotal REAL
+            )
+        """)
 
-    # 初始化預設帳號
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        default_users = [
-            ("01", "黃詠甯", "0320"),
-            ("02", "江婉秀", "1234"),
-        ]
-        cursor.executemany(
-            "INSERT INTO users (id, name, password) VALUES (?, ?, ?)",
-            default_users,
-        )
+        # 初始化預設帳號
+        cursor.execute("SELECT COUNT(*) FROM users")
+        if cursor.fetchone()[0] == 0:
+            default_users = [
+                ("01", "黃詠甯", "0320"),
+                ("02", "江婉秀", "1234"),
+            ]
+            cursor.executemany(
+                "INSERT INTO users (id, name, password) VALUES (?, ?, ?)",
+                default_users,
+            )
 
-    # 初始化預設供應商
-    cursor.execute("SELECT COUNT(*) FROM suppliers")
-    if cursor.fetchone()[0] == 0:
-        default_suppliers = [
-            ("328", "席德瑞思", "24567891", "王經理", "月結30天", "台新銀行 1234-5678"),
-            ("427", "興隆", "87654321", "陳小姐", "現金付款", "合作金庫 8765-4321"),
-        ]
-        cursor.executemany(
-            """INSERT INTO suppliers (supplier_code, supplier_name, tax_id, contact_info, payment_terms, bank_info) 
-                VALUES (?, ?, ?, ?, ?, ?)""",
-            default_suppliers,
-        )
+        # 初始化預設供應商
+        cursor.execute("SELECT COUNT(*) FROM suppliers")
+        if cursor.fetchone()[0] == 0:
+            default_suppliers = [
+                ("328", "席德瑞思", "24567891", "王經理", "月結30天", "台新銀行 1234-5678"),
+                ("427", "興隆", "87654321", "陳小姐", "現金付款", "合作金庫 8765-4321"),
+            ]
+            cursor.executemany(
+                """INSERT INTO suppliers (supplier_code, supplier_name, tax_id, contact_info, payment_terms, bank_info) 
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                default_suppliers,
+            )
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+        print("資料庫初始化成功！")
+    except Exception as e:
+        print(f"資料庫初始化發生錯誤: {e}")
 
 
 init_db()
