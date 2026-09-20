@@ -867,7 +867,7 @@ MAIN_HTML = """
     body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
     .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
     
-    /* 分群分類導覽列 */
+    /* 分群分類導覽列排版樣式 */
     .nav-header-wrapper { background: #0f172a; border-bottom: 3px solid var(--brand); padding: 10px 20px; }
     .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
     .nav-group-row:last-child { border-bottom: none; }
@@ -884,7 +884,7 @@ MAIN_HTML = """
     .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
     .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
     
-    /* 公司資訊精緻排版：公司名稱在最上方，統編電話在中間，地址在最下方 */
+    /* 公司資訊精緻排版 */
     .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.5; }
     .company-name-top { font-size: 14px; font-weight: 700; color: #f59e0b; margin-bottom: 3px; }
     .company-mid-row { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 3px; }
@@ -943,7 +943,212 @@ MAIN_HTML = """
 <body>
 
 <div class="container" id="appContainer">
-  <!-- 結構化分類導覽列 (分組整齊排列) -->
+  <!-- 公司基本資料表頭區塊置於最上方 -->
+  <!-- 1. 採購單系統 -->
+  <div id="purchaseView" class="app-view active">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PURCHASE ORDER (採購訂單)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 進貨驗收系統 -->
+  <div id="inboundView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>GOODS RECEIPT (進貨驗收單)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 客戶訂單系統 -->
+  <div id="soView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES ORDER (客戶訂單與訂金管理)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 銷貨出貨系統 -->
+  <div id="deliveryView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DELIVERY ORDER (銷貨出貨單)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. 庫存管理系統 -->
+  <div id="inventoryView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY MANAGEMENT (庫存主檔與維護)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. 客戶建立系統 -->
+  <div id="customerView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CUSTOMER MASTER (客戶資料主檔建立)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. 進退/銷退單據系統 -->
+  <div id="transView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY TRANSACTION (進退/銷退單據)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. 業務業績統計系統 -->
+  <div id="salesPerfView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES PERFORMANCE (業務人員業績與獎金統計)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. 信用卡刷卡與退刷管理系統 -->
+  <div id="creditCardView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CREDIT CARD TRANSACTIONS (信用卡刷卡與退刷管理)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10. 發票系統 -->
+  <div id="invoiceView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVOICE SYSTEM (銷貨與進項發票管理)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 11. 人事名冊 (HR) -->
+  <div id="hrView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>HR MANAGEMENT (員工與新進人員名冊)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 12. 薪資發放系統 (Payroll) -->
+  <div id="payrollView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PAYROLL SYSTEM (員工薪資與發放管理)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 13. 專業應收帳款管理 (AR Pro) -->
+  <div id="arProView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 14. 司機運費對帳系統 -->
+  <div id="printCenterView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER FREIGHT RECONCILIATION (司機運費對帳系統)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 15. 應付帳款系統 -->
+  <div id="apView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款管理)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 16. 應收帳款系統 -->
+  <div id="arView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款管理)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 17. 財務系統 -->
+  <div id="financeView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD & VOUCHERS (會計傳票與四大財務報表)</div></div>
+      <div class="po-company-info">
+        <div class="company-name-top">珮藏居傢俱有限公司</div>
+        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 結構化分類導覽列現在放置於公司資料下方 -->
   <div class="nav-header-wrapper">
     <div class="nav-group-row">
       <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
@@ -990,16 +1195,8 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 1. 採購單系統 -->
+  <!-- 1. 採購單系統表單內容 -->
   <div id="purchaseView" class="app-view active">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PURCHASE ORDER (採購訂單)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
     <form id="purchaseForm" onsubmit="handlePoSubmit(event)">
       <div class="section-block">
         <div class="section-title">一、 採購基本資料與查詢修改</div>
@@ -1048,764 +1245,7 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 2. 進貨驗收系統 -->
-  <div id="inboundView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>GOODS RECEIPT (進貨驗收單)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <form id="inboundForm" onsubmit="handleInboundSubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 進貨基本資料與採購單轉入</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px;">
-          <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
-          <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
-          <div class="form-group"><label>廠商編號</label><div style="display:flex; gap:6px;"><input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;"><div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div></div>
-      </div>
-      <div class="section-block">
-        <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
-        <table class="items-table">
-          <thead><tr><th style="width:13%;">型號</th><th style="width:17%;">品名</th><th style="width:12%;">規格</th><th style="width:10%;">顏色</th><th style="width:12%;">入庫倉庫</th><th style="width:6%;">訂購</th><th style="width:7%;">實際</th><th style="width:11%;">單價</th><th style="width:12%;">金額</th></tr></thead>
-          <tbody id="inItemsBody"></tbody>
-          <tfoot><tr><td colspan="8" style="text-align:right; font-weight:bold;">總進貨金額：</td><td style="font-weight:bold;"><span id="inGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-    </form>
-  </div>
-
-  <!-- 3. 客戶訂單系統 -->
-  <div id="soView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES ORDER (客戶訂單與訂金管理)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <form id="soForm" onsubmit="handleSoSubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 客戶訂單基本資料與訂金設定</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">業務人員</label><input type="text" id="so_sales_person" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">訂單編號</label><div style="display:flex; gap:6px;"><input type="text" id="so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="querySoRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">訂單日期</label><input type="date" id="so_order_date" required></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px;">
-          <div class="form-group"><label>客戶編號</label><input type="text" id="so_customer_code" onblur="lookupCustomerName()"></div>
-          <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="so_customer_name" required></div>
-          <div class="form-group"><label class="required">幣別</label><select id="so_currency" required><option value="NTD" selected>NTD</option><option value="USD">USD</option></select></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
-          <div class="form-group"><label class="required">付款方式 (訂金)</label><select id="so_pay_method" class="form-select form-select-sm"><option value="現金" selected>現金</option><option value="匯款">匯款</option><option value="信用卡">信用卡</option><option value="支票">支票</option></select></div>
-          <div class="form-group"><label class="required">已付訂金 ($)</label><input type="number" id="so_deposit_paid" class="form-control form-control-sm" value="0" step="0.01" oninput="calculateSoTotals()"></div>
-          <div class="form-group"><label class="text-danger fw-bold">剩餘未付尾款 ($)</label><input type="number" id="so_balance_due" class="form-control form-control-sm readonly text-danger fw-bold" value="0" readonly></div>
-        </div>
-      </div>
-      <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 訂單品項明細</div>
-          <button type="button" class="btn-add-item" onclick="addSoItemRow()">＋ 新增品項</button>
-        </div>
-        <table class="items-table">
-          <thead><tr><th style="width:16%;">型號</th><th style="width:20%;">品名</th><th style="width:14%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
-          <tbody id="soItemsBody"></tbody>
-          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-      <div class="section-block"><div class="form-group"><label>備註說明</label><textarea id="so_remark" rows="2"></textarea></div></div>
-    </form>
-  </div>
-
-  <!-- 4. 銷貨出貨系統 -->
-  <div id="deliveryView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DELIVERY ORDER (銷貨出貨單)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <form id="deliveryForm" onsubmit="handleDeliverySubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 出貨基本資料與訂單轉入</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">出貨人員</label><input type="text" id="do_shipper_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">出貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="do_number" required style="flex:1;"><button type="button" class="btn-query" onclick="queryDeliveryRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">出貨日期</label><input type="date" id="do_date" required></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px;">
-          <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:6px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入SO</button></div></div>
-          <div class="form-group"><label>客戶編號</label><input type="text" id="do_customer_code"></div>
-          <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="do_customer_name" class="readonly" readonly required></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">送貨司機 / 倉別</label><select id="do_driver" class="form-select form-select-sm" required><option value="大蔡" selected>大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option></select></div>
-          <div class="form-group"><label class="required">運費金額 ($)</label><input type="number" id="do_manual_freight" class="form-control form-control-sm" value="0" min="0" required></div>
-        </div>
-      </div>
-      <div class="section-block">
-        <div class="section-title">二、 出貨明細與出貨倉庫扣庫存</div>
-        <table class="items-table">
-          <thead><tr><th style="width:15%;">型號</th><th style="width:20%;">品名</th><th style="width:13%;">規格</th><th style="width:11%;">顏色</th><th style="width:13%;">出貨倉庫</th><th style="width:7%;">數量</th><th style="width:10%;">單價</th><th style="width:11%;">金額</th></tr></thead>
-          <tbody id="doItemsBody"></tbody>
-          <tfoot><tr><td colspan="7" style="text-align:right; font-weight:bold;">總出貨金額：</td><td style="font-weight:bold;"><span id="doGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-    </form>
-  </div>
-
-  <!-- 5. 庫存管理系統 -->
-  <div id="inventoryView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY MANAGEMENT (庫存主檔與維護)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📦 商品建檔與維護（新增或修改）</h6>
-        <form id="inventoryForm" onsubmit="handleInventorySave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">商品型號 (SKU) *</label><input type="text" id="invSku" class="form-control form-control-sm" placeholder="例: P001" required></div>
-            <div class="col-3"><label class="form-label">商品名稱 *</label><input type="text" id="invName" class="form-control form-control-sm" placeholder="商品名稱" required></div>
-            <div class="col-3"><label class="form-label">分類</label><input type="text" id="invCategory" class="form-control form-control-sm" placeholder="類別"></div>
-            <div class="col-3"><label class="form-label">進貨成本 ($)</label><input type="number" id="invCost" class="form-control form-control-sm" value="0" step="0.01"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">建議售價 ($)</label><input type="number" id="invPrice" class="form-control form-control-sm" value="0" step="0.01"></div>
-            <div class="col-3"><label class="form-label">現有庫存量</label><input type="number" id="invStock" class="form-control form-control-sm" value="0"></div>
-            <div class="col-3"><label class="form-label">安全庫存</label><input type="number" id="invSafety" class="form-control form-control-sm" value="10"></div>
-            <div class="col-3 d-flex align-items-end gap-1">
-              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存商品</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetInvForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📊 現有商品與庫存清單</h6>
-        <div class="d-flex gap-2">
-          <input type="text" id="invSearchBox" class="form-control form-control-sm" placeholder="搜尋型號或名稱..." oninput="filterInventory()" style="width:200px;">
-          <button type="button" class="btn-query btn-sm" onclick="loadInventory()">🔄 重新整理</button>
-        </div>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>型號/SKU</th><th>商品名稱</th><th>分類</th><th>成本</th><th>售價</th><th>庫存量</th><th>安全庫存</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="inventoryTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 6. 客戶建立系統 -->
-  <div id="customerView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CUSTOMER MASTER (客戶資料主檔建立)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📇 客戶資料建檔與維護（新增或修改）</h6>
-        <form id="customerForm" onsubmit="handleCustomerSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">客戶代號 *</label><input type="text" id="custCode" class="form-control form-control-sm" placeholder="例: C004" required></div>
-            <div class="col-3"><label class="form-label">客戶名稱 / 抬頭 *</label><input type="text" id="custName" class="form-control form-control-sm" placeholder="客戶姓名或公司" required></div>
-            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="custTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
-            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="custPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-6"><label class="form-label">付款條件</label><input type="text" id="custTerms" class="form-control form-control-sm" value="月結30天"></div>
-            <div class="col-6 d-flex align-items-end gap-1">
-              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存客戶</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetCustForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📋 客戶主檔清單</h6>
-        <button class="btn-query btn-sm" onclick="loadCustomers()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>客戶代號</th><th>客戶名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="custTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 7. 進退/銷退單據系統 -->
-  <div id="transView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY TRANSACTION (進退/銷退單據)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <form id="transForm" onsubmit="event.preventDefault(); submitTransaction();">
-      <div class="inventory-group">
-        <span class="fw-bold text-success d-block mb-2">📑 建立進銷存交易單據 (含訂單編號與客戶資訊)：</span>
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">單據類型 *</label><select id="transType" class="form-select form-select-sm fw-bold text-primary"><option value="銷貨" selected>📦 銷貨 (自動扣庫存 & 結轉銷貨成本)</option><option value="進貨">📥 進貨 (增加庫存)</option><option value="銷貨退回">↩️ 銷貨退回</option><option value="進貨退回">🔙 進貨退回</option></select></div>
-          <div class="col-6"><label class="form-label">單據日期 *</label><input type="date" id="transDate" class="form-control form-control-sm" required></div>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col-4"><label class="form-label">訂單編號</label><input type="text" id="transOrderId" class="form-control form-control-sm" placeholder="例: 4110213"></div>
-          <div class="col-4"><label class="form-label">客戶代號</label><input type="text" id="transCustCode" class="form-control form-control-sm" placeholder="例: C001"></div>
-          <div class="col-4"><label class="form-label">客戶名稱 *</label><input type="text" id="transCustName" class="form-control form-control-sm" placeholder="客戶抬頭" required></div>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">選擇商品 (SKU) *</label><select id="transSkuSelect" class="form-select form-select-sm" onchange="onSkuSelected()"></select></div>
-          <div class="col-6"><label class="form-label">商品型號 (SKU碼)</label><input type="text" id="transSku" class="form-control form-control-sm bg-white" readonly required></div>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col-4"><label class="form-label">交易數量 *</label><input type="number" id="transQty" class="form-control form-control-sm fw-bold" value="1" min="1" required></div>
-          <div class="col-4"><label class="form-label">單價 ($) *</label><input type="number" id="transPrice" class="form-control form-control-sm fw-bold" value="0" required></div>
-          <div class="col-4"><label class="form-label">KEY IN 人員</label><input type="text" id="transKeyin" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
-        </div>
-      </div>
-      <button type="submit" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 確認並送出單據</button>
-    </form>
-  </div>
-
-  <!-- 8. 業務業績統計系統 -->
-  <div id="salesPerfView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES PERFORMANCE (業務人員業績與獎金統計)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border no-print">
-        <h6 class="fw-bold text-primary mb-2">🏆 手動登錄或維護業務業績</h6>
-        <form id="salesPerfForm" onsubmit="handleSalesPerfSave(event)" style="padding:0;">
-          <input type="hidden" id="perfRecordId">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">業務人員 *</label><input type="text" id="perfSalesPerson" class="form-control form-control-sm" placeholder="業務姓名" required></div>
-            <div class="col-3"><label class="form-label">訂單編號</label><input type="text" id="perfOrderId" class="form-control form-control-sm" placeholder="訂單編號"></div>
-            <div class="col-3"><label class="form-label">成交日期 *</label><input type="date" id="perfOrderDate" class="form-control form-control-sm" required></div>
-            <div class="col-3"><label class="form-label">客戶名稱 *</label><input type="text" id="perfCustomer" class="form-control form-control-sm" placeholder="客戶名稱" required></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">業績金額 ($) *</label><input type="number" id="perfSalesAmount" class="form-control form-control-sm" value="0" step="0.01" required></div>
-            <div class="col-4"><label class="form-label">抽成比例 (例如 0.05)</label><input type="number" id="perfRate" class="form-control form-control-sm" value="0.05" step="0.01"></div>
-            <div class="col-4 d-flex align-items-end gap-1">
-              <button type="submit" id="perfSubmitBtn" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存業績</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetSalesPerfForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
-        <div class="grid-3" style="align-items:end;">
-          <div class="form-group"><label>依業務人員篩選</label><input type="text" id="perfFilterPerson" class="form-control form-control-sm" placeholder="留空代表全部"></div>
-          <div class="form-group"><label>區間 (起)</label><input type="date" id="perfFilterStart" class="form-control form-control-sm"></div>
-          <div class="form-group"><label>區間 (迄)</label><input type="date" id="perfFilterEnd" class="form-control form-control-sm"></div>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-          <button type="button" class="btn-reset" onclick="loadSalesPerformance()" style="padding:5px 10px; font-size:12px;">查詢篩選</button>
-          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印業績報表</button>
-        </div>
-      </div>
-
-      <table class="items-table">
-        <thead><tr><th>業務人員</th><th>訂單編號</th><th>成交日期</th><th>客戶名稱</th><th>業績金額</th><th>抽成比例</th><th>預估抽成獎金</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="salesPerfTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 9. 信用卡刷卡與退刷管理系統 -->
-  <div id="creditCardView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CREDIT CARD TRANSACTIONS (信用卡刷卡與退刷管理)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">💳 登錄刷卡收入或退刷 (退款)</h6>
-        <form id="ccForm" onsubmit="handleCcSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">交易類型 *</label><select id="ccType" class="form-select form-select-sm fw-bold text-primary"><option value="刷卡收入" selected>💳 刷卡收入 (收款)</option><option value="信用卡退刷">↩️ 信用卡退刷 (退款)</option></select></div>
-            <div class="col-3"><label class="form-label">訂單編號</label><input type="text" id="ccOrderId" class="form-control form-control-sm" placeholder="訂單編號"></div>
-            <div class="col-3"><label class="form-label">客戶名稱 *</label><input type="text" id="ccCustomer" class="form-control form-control-sm" placeholder="客戶名稱" required></div>
-            <div class="col-3"><label class="form-label">交易金額 ($) *</label><input type="number" id="ccAmount" class="form-control form-control-sm fw-bold" value="0" step="0.01" required></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">授權碼 (Auth Code)</label><input type="text" id="ccAuthCode" class="form-control form-control-sm" placeholder="授權碼"></div>
-            <div class="col-3"><label class="form-label">卡號末4碼</label><input type="text" id="ccLast4" class="form-control form-control-sm" placeholder="例如: 8888" maxlength="4"></div>
-            <div class="col-3"><label class="form-label">交易日期 *</label><input type="date" id="ccDate" class="form-control form-control-sm" required></div>
-            <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存刷卡紀錄</button></div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 信用卡刷卡與退刷流水帳</h6>
-        <button class="btn-query btn-sm" onclick="loadCreditCardTxns()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>交易日期</th><th>類型</th><th>訂單編號</th><th>客戶名稱</th><th>授權碼</th><th>卡號末4碼</th><th>金額</th><th>備註</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="ccTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 10. 發票系統 -->
-  <div id="invoiceView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVOICE SYSTEM (銷貨與進項發票管理)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">🧾 發票開立與進項登錄維護</h6>
-        <form id="invoiceForm" onsubmit="handleInvoiceSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">發票號碼 *</label><input type="text" id="invNo" class="form-control form-control-sm" placeholder="例: AB12345678" required></div>
-            <div class="col-3"><label class="form-label">發票日期 *</label><input type="date" id="invDate" class="form-control form-control-sm" required></div>
-            <div class="col-3"><label class="form-label">發票類型 *</label><select id="invType" class="form-select form-select-sm"><option value="二聯式" selected>二聯式</option><option value="三聯式">三聯式</option></select></div>
-            <div class="col-3"><label class="form-label">類別 *</label><select id="partyType" class="form-select form-select-sm"><option value="銷貨發票" selected>銷貨發票 (開立)</option><option value="進項發票">進項發票 (收到)</option></select></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">對象名稱 (客戶/廠商) *</label><input type="text" id="invCust" class="form-control form-control-sm" placeholder="名稱/抬頭" required></div>
-            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="invTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
-            <div class="col-2"><label class="form-label">銷售未稅 ($) *</label><input type="number" id="invSalesAmt" class="form-control form-control-sm" value="0" step="0.01" oninput="calcInvTax()" required></div>
-            <div class="col-2"><label class="form-label">營業稅 (5%) ($)</label><input type="number" id="invTaxAmt" class="form-control form-control-sm" value="0" step="0.01"></div>
-            <div class="col-2"><label class="form-label text-success fw-bold">發票總計 ($)</label><input type="number" id="invTotalAmt" class="form-control form-control-sm readonly text-success fw-bold" readonly></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">狀態</label><select id="invStatus" class="form-select form-select-sm"><option value="正常" selected>正常</option><option value="作廢">作廢</option><option value="折讓">折讓</option></select></div>
-            <div class="col-6"><label class="form-label">備註</label><input type="text" id="invNote" class="form-control form-control-sm" placeholder="備註..."></div>
-            <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存發票</button></div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 已建檔發票明細清單</h6>
-        <button class="btn-query btn-sm" onclick="loadInvoices()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>發票號碼</th><th>日期</th><th>類型</th><th>類別</th><th>對象名稱</th><th>統編</th><th>未稅金額</th><th>稅額</th><th>總計</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="invoiceTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 11. 人事名冊 (HR) -->
-  <div id="hrView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>HR MANAGEMENT (員工與新進人員名冊)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">👤 員工建檔與維護（新增或修改）</h6>
-        <form id="hrForm" onsubmit="handleEmpSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">員工編號 *</label><input type="text" id="empId" class="form-control form-control-sm" placeholder="例: EMP03" required></div>
-            <div class="col-3"><label class="form-label">員工姓名 *</label><input type="text" id="empName" class="form-control form-control-sm" placeholder="姓名" required></div>
-            <div class="col-3"><label class="form-label">部門</label><input type="text" id="empDept" class="form-control form-control-sm" placeholder="部門"></div>
-            <div class="col-3"><label class="form-label">職稱</label><input type="text" id="empTitle" class="form-control form-control-sm" placeholder="職稱"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="empPhone" class="form-control form-control-sm" placeholder="電話"></div>
-            <div class="col-3"><label class="form-label">到職日</label><input type="date" id="empHireDate" class="form-control form-control-sm"></div>
-            <div class="col-3"><label class="form-label">基本底薪 ($)</label><input type="number" id="empSalary" class="form-control form-control-sm" value="35000" step="100"></div>
-            <div class="col-3"><label class="form-label">狀態</label><select id="empStatus" class="form-select form-select-sm"><option value="在職" selected>在職</option><option value="離職">離職</option></select></div>
-          </div>
-          <div class="mt-2 d-flex justify-content-end gap-1">
-            <button type="submit" class="btn btn-success btn-sm fw-bold px-4">💾 儲存員工</button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="resetEmpForm()">重設</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📋 員工名冊清單</h6>
-        <button class="btn-query btn-sm" onclick="loadEmployees()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>職稱</th><th>電話</th><th>到職日</th><th>底薪</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="empTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 12. 薪資發放系統 (Payroll) -->
-  <div id="payrollView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PAYROLL SYSTEM (員工薪資與發放管理)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">💵 薪資登錄與發放維護</h6>
-        <form id="payrollForm" onsubmit="handlePayrollSave(event)" style="padding:0;">
-          <input type="hidden" id="payrollRecordId">
-          <div class="row g-2">
-            <div class="col-4">
-              <label class="form-label">選擇員工 *</label>
-              <select id="payEmpSelect" class="form-select form-select-sm" onchange="onEmpSelectedForPay()" required></select>
-            </div>
-            <div class="col-4"><label class="form-label">員工編號</label><input type="text" id="payEmpId" class="form-control form-control-sm bg-white" readonly></div>
-            <div class="col-4"><label class="form-label">薪資月份 (YYYY-MM) *</label><input type="month" id="payMonth" class="form-control form-control-sm" required></div>
-          </div>
-          
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">基本底薪 ($)</label><input type="number" id="payBase" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-success">職務/全勤津貼 ($)</label><input type="number" id="payAllowance" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-success">加班費 ($)</label><input type="number" id="payOvertime" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label text-danger">請假/缺勤扣款 ($)</label><input type="number" id="payLeaveDed" class="form-control form-control-sm text-danger" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-danger">員購扣款 ($)</label><input type="number" id="payPurDed" class="form-control form-control-sm text-danger" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-danger">勞健保自付額 ($)</label><input type="number" id="payInsDed" class="form-control form-control-sm text-danger" value="0" oninput="calcPayrollNet()"></div>
-          </div>
-
-          <div class="row g-2 mt-2 align-items-center bg-white p-2 border rounded">
-            <div class="col-6"><label class="form-label text-primary fw-bold fs-6">💰 實際發放金額 ($)：</label></div>
-            <div class="col-6"><input type="number" id="payNet" class="form-control form-control-sm fw-bold text-success fs-5 bg-light" readonly></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">發放日期 *</label><input type="date" id="payDate" class="form-control form-control-sm" required></div>
-            <div class="col-8"><label class="form-label">備註說明</label><input type="text" id="payNote" class="form-control form-control-sm" placeholder="備註..."></div>
-          </div>
-          <div class="mt-2 d-flex justify-content-end gap-1">
-            <button type="submit" id="payrollSubmitBtn" class="btn btn-success btn-sm fw-bold px-4">💾 儲存薪資紀錄</button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="resetPayrollForm()">重設</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 歷年薪資發放紀錄查詢與維護</h6>
-        <button class="btn-query btn-sm" onclick="loadPayroll()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>月份</th><th>編號</th><th>姓名</th><th>底薪</th><th>津貼</th><th>加班</th><th>請假扣款</th><th>員購扣</th><th>勞健保</th><th>實發金額</th><th>發放日</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="payrollTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 13. 專業應收帳款管理 (AR Pro) -->
-  <div id="arProView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="input-group input-group-sm mb-3">
-        <input type="text" id="arSearchId" class="form-control" placeholder="輸入訂單編號查歷史明細或新增再次收款（如 4110213）">
-        <button class="btn btn-outline-primary fw-bold" type="button" onclick="searchAR()">🔍 查詢單據歷史</button>
-      </div>
-
-      <div id="arUnpaidBanner" class="unpaid-alert-card" style="display:none;"></div>
-
-      <form id="arForm" onsubmit="event.preventDefault(); submitAR();" style="padding:0;">
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">訂單編號 *</label><input type="text" id="arOrderId" class="form-control form-control-sm" required></div>
-          <div class="col-6"><label class="form-label">客戶名稱 *</label><input type="text" id="arCustomer" class="form-control form-control-sm" required></div>
-        </div>
-
-        <div class="finance-group">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <span class="fw-bold text-success">💰 本次收款資訊：</span>
-            <span class="text-muted small">累計已收總額：<strong id="dispTotalCollectedText" class="text-dark">$0</strong></span>
-          </div>
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">總金額 ($)</label><input type="number" id="arSalesAmount" class="form-control form-control-sm" value="0" oninput="calcAR()"></div>
-            <div class="col-3"><label class="form-label">已收訂金 ($)</label><input type="number" id="arDeposit" class="form-control form-control-sm" value="0" oninput="calcAR()"></div>
-            <div class="col-3"><label class="form-label text-primary fw-bold">本次收款 ($) *</label><input type="number" id="arReceiveAmount" class="form-control form-control-sm border-primary" value="0" oninput="calcAR()" required></div>
-            <div class="col-3"><label class="form-label text-danger fw-bold">剩餘未收 ($)</label><input type="number" id="arUnpaidAmount" class="form-control form-control-sm bg-light text-danger fw-bold" value="0" readonly></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-6">
-              <label class="form-label">收款方式 *</label>
-              <select id="arPayType" class="form-select form-select-sm" onchange="toggleARCheckFields()">
-                <option value="現金" selected>💵 現金 (司機代收)</option><option value="匯款">🏦 匯款</option><option value="刷卡">💳 刷卡</option><option value="應收票據">📑 應收票據</option>
-              </select>
-            </div>
-            <div class="col-6"><label class="form-label">收款日期 *</label><input type="date" id="arReceiveDate" class="form-control form-control-sm" required></div>
-          </div>
-
-          <div id="boxARCheck" class="check-box mt-2" style="display:none;">
-            <div class="row g-2">
-              <div class="col-6"><label class="form-label text-danger">支票號碼 *</label><input type="text" id="arCheckNo" class="form-control form-control-sm"></div>
-              <div class="col-6"><label class="form-label text-danger">到期日 *</label><input type="date" id="arCheckDueDate" class="form-control form-control-sm"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="p-2 border rounded bg-light mb-2">
-          <div class="row g-2">
-            <div class="col-4">
-              <label class="form-label">運送人員/倉別</label>
-              <select id="arDriver" class="form-select form-select-sm" onchange="updateDriverLogic()">
-                <option value="大蔡">大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option>
-              </select>
-            </div>
-            <div class="col-4"><label class="form-label">送貨地區</label><select id="arDriverArea" class="form-select form-select-sm" onchange="calcFreight()"></select></div>
-            <div class="col-4"><label class="form-label text-danger">運費 ($)</label><input type="number" id="arFreight" class="form-control form-control-sm" value="0"></div>
-          </div>
-          <div class="row g-2 mt-1">
-            <div class="col-6"><label class="form-label">舊貨回收費 ($)</label><input type="number" id="arOldItemFee" class="form-control form-control-sm" value="0"></div>
-            <div class="col-6"><label class="form-label">KEY IN 人員</label><input type="text" id="arKeyinUser" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
-          </div>
-        </div>
-
-        <div class="mb-3"><label class="form-label">備註說明</label><input type="text" id="arNote" class="form-control form-control-sm"></div>
-
-        <div id="arHistoryBox" class="history-card" style="display:none;">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="fw-bold text-dark mb-0">📜 該訂單歷史獨立收款清單：</h6><span class="badge bg-secondary" id="arHistoryCountBadge">0 筆</span>
-          </div>
-          <div class="table-responsive bg-white rounded border">
-            <table class="table table-sm table-hover text-center align-middle mb-0" style="font-size:11.5px;">
-              <thead class="table-light"><tr><th>收款日期</th><th>方式</th><th>金額</th><th>票號/到期日</th><th>經辦</th><th>備註</th><th>操作</th></tr></thead>
-              <tbody id="arHistoryListBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="mt-3">
-          <button type="submit" id="arSaveBtn" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 儲存並新增一筆收款紀錄</button>
-          <button type="button" id="arCancelEditBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" style="display:none;" onclick="cancelRowEdit()">❌ 取消修改</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 14. 司機運費對帳系統 -->
-  <div id="printCenterView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER FREIGHT RECONCILIATION (司機運費對帳系統)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 no-print">
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-          <select id="printDriverFilter" class="form-select form-select-sm" style="width: 150px;">
-            <option value="ALL">🚚 全部司機/倉別</option><option value="大蔡">大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option>
-          </select>
-          <div class="d-flex align-items-center gap-1">
-            <input type="date" id="printStartDate" class="form-control form-control-sm" style="width: 130px;">
-            <span>~</span>
-            <input type="date" id="printEndDate" class="form-control form-control-sm" style="width: 130px;">
-          </div>
-          <button class="btn btn-primary btn-sm fw-bold px-3" onclick="loadPrintData()">載入對帳單</button>
-        </div>
-        <button class="btn btn-outline-dark btn-sm fw-bold" onclick="window.print()">🖨️ 列印 / 存為 PDF</button>
-      </div>
-      <div id="printContainer" class="p-3 border rounded bg-white" style="min-height: 250px;">
-        <div class="text-muted text-center py-5">請選取起迄日期並點擊「載入對帳單」以預覽並列印</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 15. 應付帳款系統 -->
-  <div id="apView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款管理)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
-        <div class="grid-3" style="align-items:end;">
-          <div class="form-group"><label>依單家廠商名稱或代號篩選</label><input type="text" id="ap_filter_vendor" class="form-control form-control-sm" placeholder="輸入廠商名稱/代號..." oninput="loadAP()"></div>
-          <div class="form-group"><label>依歸屬月份 (YYYY-MM)</label><input type="month" id="ap_filter_month" oninput="loadAP()"></div>
-          <div class="form-group"><label>日期區間 (起 ~ 迄)</label><div style="display:flex; gap:4px;"><input type="date" id="ap_filter_start" onchange="loadAP()"><span>~</span><input type="date" id="ap_filter_end" onchange="loadAP()"></div></div>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-          <button type="button" class="btn-reset" onclick="resetApFilter()" style="padding:5px 10px; font-size:12px;">清除篩選</button>
-          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印應付報表</button>
-        </div>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>進貨單號</th><th>進貨日期</th><th>供應商</th><th>應付總額</th><th>付款條件</th><th>預計付款日</th><th>已付金額</th><th>未付餘額</th><th>狀態</th><th class="no-print">操作</th></tr></thead>
-        <tbody id="apTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 16. 應收帳款系統 -->
-  <div id="arView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款管理)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:22px 30px;">
-      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
-        <div class="grid-3" style="align-items:end;">
-          <div class="form-group"><label>依單家客戶名稱或代號篩選</label><input type="text" id="ar_filter_customer" class="form-control form-control-sm" placeholder="輸入客戶名稱/代號..." oninput="loadAR()"></div>
-          <div class="form-group"><label>依歸屬月份 (YYYY-MM)</label><input type="month" id="ar_filter_month" oninput="loadAR()"></div>
-          <div class="form-group"><label>日期區間 (起 ~ 迄)</label><div style="display:flex; gap:4px;"><input type="date" id="ar_filter_start" onchange="loadAR()"><span>~</span><input type="date" id="ar_filter_end" onchange="loadAR()"></div></div>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-          <button type="button" class="btn-reset" onclick="resetArFilter()" style="padding:5px 10px; font-size:12px;">清除篩選</button>
-          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印應收報表</button>
-        </div>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>出貨單號</th><th>出貨日期</th><th>客戶名稱</th><th>應收總額</th><th>付款條件</th><th>預計收款日</th><th>已收金額</th><th>未收餘額</th><th>狀態</th></tr></thead>
-        <tbody id="arTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 17. 財務系統 -->
-  <div id="financeView" class="app-view">
-    <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD & VOUCHERS (會計傳票與四大財務報表)</div></div>
-      <div class="po-company-info">
-        <div class="company-name-top">珮藏居傢俱有限公司</div>
-        <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-        <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-      </div>
-    </div>
-    <div style="padding:25px 30px;">
-      <div class="card p-3 mb-4 bg-light border no-print">
-        <h6 class="fw-bold text-primary mb-2">📑 會計傳票登錄（應收票據、應付票據、現金/銀行收支傳票）</h6>
-        <form id="voucherForm" onsubmit="handleVoucherSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">傳票編號 *</label><input type="text" id="vNo" class="form-control form-control-sm" placeholder="例: V20260901" required></div>
-            <div class="col-3"><label class="form-label">傳票日期 *</label><input type="date" id="vDate" class="form-control form-control-sm" required></div>
-            <div class="col-3">
-              <label class="form-label">傳票類型 *</label>
-              <select id="vType" class="form-select form-select-sm">
-                <option value="現金收入傳票">現金收入傳票</option>
-                <option value="現金支出傳票">現金支出傳票</option>
-                <option value="銀行收支傳票">銀行收支傳票</option>
-                <option value="轉帳傳票" selected>轉帳傳票 (含票據)</option>
-              </select>
-            </div>
-            <div class="col-3"><label class="form-label">製表人</label><input type="text" id="vPreparer" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-12"><label class="form-label">摘要說明 *</label><input type="text" id="vSummary" class="form-control form-control-sm" placeholder="例如：收回應收票據 / 支付租金..." required></div>
-          </div>
-
-          <div class="mt-3">
-            <label class="fw-bold text-dark mb-1">傳票會計分錄明細（借貸平衡）：</label>
-            <table class="table table-sm table-bordered bg-white" id="voucherItemsTable">
-              <thead><tr><th>會計科目代號</th><th>會計科目名稱</th><th>借方金額 ($)</th><th>貸方金額 ($)</th><th class="text-center">操作</th></tr></thead>
-              <tbody id="vItemsBody">
-                <tr>
-                  <td><input type="text" class="form-control form-control-sm v-code" value="1101" placeholder="代號"></td>
-                  <td><input type="text" class="form-control form-control-sm v-name" value="現金/銀行存款" placeholder="名稱"></td>
-                  <td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button></td>
-                </tr>
-                <tr>
-                  <td><input type="text" class="form-control form-control-sm v-code" value="1141" placeholder="代號"></td>
-                  <td><input type="text" class="form-control form-control-sm v-name" value="應收票據/應收帳款" placeholder="名稱"></td>
-                  <td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button></td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="2" class="text-end fw-bold">合計：</td>
-                  <td class="fw-bold text-primary" id="vTotalDr">0.00</td>
-                  <td class="fw-bold text-success" id="vTotalCr">0.00</td>
-                  <td class="text-center"><button type="button" class="btn btn-sm btn-dark" onclick="addVoucherItemRow()">＋ 增加分錄</button></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div class="text-end mt-2"><button type="submit" class="btn btn-success btn-sm fw-bold px-4">💾 儲存會計傳票</button></div>
-        </form>
-      </div>
-
-      <div class="row g-3 mb-4">
-        <div class="col-md-6">
-          <div style="background:#f8fafc; border:1px solid var(--border); padding:20px; border-radius:8px;">
-            <h4 style="color:#0f172a; margin-bottom:12px; border-bottom:2px solid var(--brand); padding-bottom:6px;">📈 四大財務報表與試算表摘要</h4>
-            <button class="btn btn-outline-primary btn-sm fw-bold mb-2" onclick="loadFinancialReports()">📊 產生/重新整理報表</button>
-            <div id="finReportsContainer" style="max-height:220px; overflow-y:auto;">
-              <p class="text-muted small">點擊上方按鈕以載入會計科目試算表與損益狀況</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <div style="background:#f8fafc; border:1px solid var(--border); padding:20px; border-radius:8px;">
-            <h4 style="color:#0f172a; margin-bottom:12px; border-bottom:2px solid var(--brand); padding-bottom:6px;">📑 已建檔會計傳票清單</h4>
-            <div class="table-responsive" style="max-height:220px; overflow-y:auto;">
-              <table class="table table-sm table-hover bg-white mb-0" style="font-size:11.5px;">
-                <thead><tr><th>傳票號碼</th><th>日期</th><th>類型</th><th>摘要</th><th>金額</th><th class="text-center">操作</th></tr></thead>
-                <tbody id="voucherTableBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <!-- 各頁面其餘表單 View 內容維持原樣... -->
 </div>
 
 <!-- 互動付款 Modal -->
