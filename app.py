@@ -7,11 +7,9 @@ import psycopg2.extras
 app = Flask(__name__)
 app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 
-# 設定你的 Supabase PostgreSQL 雲端資料庫連線字串 (Session Pooler)
-# 請將 你的真實密碼 替換為你建立 Supabase 時設定的資料庫密碼
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
-    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+    "postgresql://postgres.gutyrssxtpuxndflkceq:你的真實密碼@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 def get_db_connection():
@@ -28,7 +26,15 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS customers (customer_code TEXT PRIMARY KEY, customer_name TEXT NOT NULL, tax_id TEXT, contact_info TEXT, payment_terms TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id SERIAL PRIMARY KEY, warehouse_name TEXT UNIQUE NOT NULL)")
         cursor.execute("CREATE TABLE IF NOT EXISTS inventory_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, safety_stock INTEGER DEFAULT 0, note TEXT)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS employees (emp_id TEXT PRIMARY KEY, emp_name TEXT NOT NULL, department TEXT, title TEXT, phone TEXT, hire_date TEXT, base_salary REAL DEFAULT 0, status TEXT DEFAULT '在職', note TEXT)")
+        
+        # 員工資料表增加 bank_name (銀行名稱) 與 bank_account (匯款帳號) 欄位
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                emp_id TEXT PRIMARY KEY, emp_name TEXT NOT NULL, department TEXT, title TEXT, 
+                phone TEXT, hire_date TEXT, base_salary REAL DEFAULT 0, status TEXT DEFAULT '在職', 
+                bank_name TEXT, bank_account TEXT, note TEXT
+            )
+        """)
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS payroll_records (
@@ -177,7 +183,7 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()["count"] == 0:
             cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (%s, %s, %s, %s)",
-                [("01", "黃詠甯", "0320", "系統管理"), ("02", "經辦人員", "1234", "門市經辦"), ("admin", "系統管理員", "pezang888", "系統管理")])
+                [("EMP01", "黃詠甯", "0320", "會計主管"), ("EMP02", "江婉秀", "1234", "門市經辦"), ("admin", "系統管理員", "pezang888", "系統管理")])
 
         cursor.execute("SELECT COUNT(*) FROM warehouses")
         if cursor.fetchone()["count"] == 0:
@@ -193,9 +199,9 @@ def init_db():
 
         cursor.execute("SELECT COUNT(*) FROM employees")
         if cursor.fetchone()["count"] == 0:
-            cursor.executemany("INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", [
-                ("EMP01", "黃詠甯", "管理部", "會計及特助", "0912-345678", "2024-01-01", 45000, "在職", "核心管理"),
-                ("EMP02", "江婉秀", "門市部", "門市經辦", "0922-888999", "2024-06-01", 35000, "在職", "門市業務")
+            cursor.executemany("INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, bank_name, bank_account, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", [
+                ("EMP01", "黃詠甯", "管理部", "會計及特助", "0912-345678", "2024-01-01", 45000, "在職", "國泰世華", "012-3456-7890", "核心管理"),
+                ("EMP02", "江婉秀", "門市部", "門市經辦", "0922-888999", "2024-06-01", 35000, "在職", "中國信託", "822-9876-5432", "門市業務")
             ])
 
         conn.commit()
@@ -213,7 +219,9 @@ init_db()
 def index():
     if "user_id" not in session:
         return redirect(url_for("login_page"))
-    return render_template_string(MAIN_HTML, user_name=session["user_name"], user_role=session.get("user_role", "經辦人"))
+    # 判斷是否為會計人員 (EMP01, EMP02 或 admin)
+    is_accountant = session["user_id"] in ["EMP01", "EMP02", "admin"]
+    return render_template_string(MAIN_HTML, user_name=session["user_name"], user_id=session["user_id"], is_accountant=is_accountant)
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
@@ -316,7 +324,7 @@ def api_delete_customer(c_code):
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 
-# --- 員工與薪資 CRUD API ---
+# --- 員工與薪資 CRUD API (含匯款銀行與帳號) ---
 @app.route("/api/employees/list")
 def get_employees():
     conn = get_db_connection()
@@ -335,14 +343,15 @@ def save_employee():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, bank_name, bank_account, note)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (emp_id) DO UPDATE 
             SET emp_name = EXCLUDED.emp_name, department = EXCLUDED.department, title = EXCLUDED.title,
                 phone = EXCLUDED.phone, hire_date = EXCLUDED.hire_date, base_salary = EXCLUDED.base_salary,
-                status = EXCLUDED.status, note = EXCLUDED.note
+                status = EXCLUDED.status, bank_name = EXCLUDED.bank_name, bank_account = EXCLUDED.bank_account, note = EXCLUDED.note
         """, (data.get("emp_id"), data.get("emp_name"), data.get("department"), data.get("title"),
-              data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note")))
+              data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), 
+              data.get("bank_name"), data.get("bank_account"), data.get("note")))
         conn.commit()
         cursor.close()
         conn.close()
@@ -1128,7 +1137,7 @@ MAIN_HTML = """
 
 <div class="container" id="appContainer">
   <div class="po-header">
-    <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ENTERPRISE MANAGEMENT SYSTEM</div></div>
+    <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ENTERPRISE MANAGEMENT SYSTEM (當前使用者: {{ user_name }})</div></div>
     <div class="po-company-info">
       <div class="company-name-top">珮藏居傢俱有限公司</div>
       <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
@@ -1159,8 +1168,10 @@ MAIN_HTML = """
         <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績</button>
       </div>
     </div>
-    <div class="nav-group-row">
-      <span class="nav-group-title"><i class="fa-solid fa-calculator"></i> 帳款與財務：</span>
+    
+    {% if is_accountant %}
+    <div class="nav-group-row" style="background: rgba(197, 155, 39, 0.15); border-radius: 6px; padding: 4px 8px;">
+      <span class="nav-group-title text-warning"><i class="fa-solid fa-calculator"></i> 帳款與財務 (會計專用)：</span>
       <div class="nav-group-buttons">
         <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
         <button type="button" class="tab-btn" id="btnTabApPro" onclick="switchTab('apPro')">📤 專業應付</button>
@@ -1170,6 +1181,8 @@ MAIN_HTML = """
         <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務與傳票</button>
       </div>
     </div>
+    {% endif %}
+
     <div class="nav-group-row">
       <span class="nav-group-title"><i class="fa-solid fa-warehouse"></i> 庫存與行政：</span>
       <div class="nav-group-buttons">
@@ -1178,7 +1191,9 @@ MAIN_HTML = """
         <button type="button" class="tab-btn" id="btnTabCreditCard" onclick="switchTab('creditCard')">💳 刷卡/退刷</button>
         <button type="button" class="tab-btn" id="btnTabInvoice" onclick="switchTab('invoice')">🧾 發票系統</button>
         <button type="button" class="tab-btn" id="btnTabHr" onclick="switchTab('hr')">👥 人事名冊</button>
-        <button type="button" class="tab-btn" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統</button>
+        {% if is_accountant %}
+        <button type="button" class="tab-btn border border-warning" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統 (會計)</button>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -1540,11 +1555,11 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 11. 人事名冊 (HR) -->
+  <!-- 11. 人事名冊 (HR - 含匯款銀行與帳號) -->
   <div id="hrView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">👤 員工建檔與維護（新增或修改）</h6>
+        <h6 class="fw-bold text-primary mb-2">👤 員工建檔與維護（含匯款銀行與帳號）</h6>
         <form id="hrForm" onsubmit="handleEmpSave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">員工編號 *</label><input type="text" id="empId" class="form-control form-control-sm" placeholder="例: EMP03" required></div>
@@ -1558,9 +1573,13 @@ MAIN_HTML = """
             <div class="col-3"><label class="form-label">基本底薪 ($)</label><input type="number" id="empSalary" class="form-control form-control-sm" value="35000" step="100"></div>
             <div class="col-3"><label class="form-label">狀態</label><select id="empStatus" class="form-select form-select-sm"><option value="在職" selected>在職</option><option value="離職">離職</option></select></div>
           </div>
-          <div class="mt-2 d-flex justify-content-end gap-1">
-            <button type="submit" class="btn btn-success btn-sm fw-bold px-4">💾 儲存員工</button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="resetEmpForm()">重設</button>
+          <div class="row g-2 mt-2">
+            <div class="col-4"><label class="form-label text-primary">匯款銀行名稱</label><input type="text" id="empBankName" class="form-control form-control-sm" placeholder="例如: 國世華 / 中國信託"></div>
+            <div class="col-5"><label class="form-label text-primary">銀行帳號 (匯款用)</label><input type="text" id="empBankAccount" class="form-control form-control-sm" placeholder="例如: 012-3456-7890"></div>
+            <div class="col-3 d-flex align-items-end gap-1">
+              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存員工</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetEmpForm()">重設</button>
+            </div>
           </div>
         </form>
       </div>
@@ -1570,17 +1589,17 @@ MAIN_HTML = """
         <button class="btn-query btn-sm" onclick="loadEmployees()">🔄 重新整理</button>
       </div>
       <table class="items-table">
-        <thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>職稱</th><th>電話</th><th>到職日</th><th>底薪</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
+        <thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>職稱</th><th>電話</th><th>底薪</th><th>匯款銀行與帳號</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="empTableBody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 12. 薪資發放系統 (Payroll) -->
+  <!-- 12. 薪資發放系統 (Payroll - 僅會計可用) -->
   <div id="payrollView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">💵 薪資登錄與發放維護</h6>
+        <h6 class="fw-bold text-primary mb-2">💵 薪資登錄與匯款資訊維護</h6>
         <form id="payrollForm" onsubmit="handlePayrollSave(event)" style="padding:0;">
           <input type="hidden" id="payrollRecordId">
           <div class="row g-2">
@@ -1605,13 +1624,13 @@ MAIN_HTML = """
           </div>
 
           <div class="row g-2 mt-2 align-items-center bg-white p-2 border rounded">
-            <div class="col-6"><label class="form-label text-primary fw-bold fs-6">💰 實際發放金額 ($)：</label></div>
+            <div class="col-6"><label class="form-label text-primary fw-bold fs-6">💰 實際匯款發放金額 ($)：</label></div>
             <div class="col-6"><input type="number" id="payNet" class="form-control form-control-sm fw-bold text-success fs-5 bg-light" readonly></div>
           </div>
 
           <div class="row g-2 mt-2">
             <div class="col-4"><label class="form-label">發放日期 *</label><input type="date" id="payDate" class="form-control form-control-sm" required></div>
-            <div class="col-8"><label class="form-label">備註說明</label><input type="text" id="payNote" class="form-control form-control-sm" placeholder="備註..."></div>
+            <div class="col-8"><label class="form-label">備註說明 (匯款明細備註)</label><input type="text" id="payNote" class="form-control form-control-sm" placeholder="備註..."></div>
           </div>
           <div class="mt-2 d-flex justify-content-end gap-1">
             <button type="submit" id="payrollSubmitBtn" class="btn btn-success btn-sm fw-bold px-4">💾 儲存薪資紀錄</button>
@@ -1621,17 +1640,17 @@ MAIN_HTML = """
       </div>
 
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 歷年薪資發放紀錄查詢與維護</h6>
+        <h6 class="fw-bold text-dark mb-0">📜 歷年薪資發放與匯款記錄</h6>
         <button class="btn-query btn-sm" onclick="loadPayroll()">🔄 重新整理</button>
       </div>
       <table class="items-table">
-        <thead><tr><th>月份</th><th>編號</th><th>姓名</th><th>底薪</th><th>津貼</th><th>加班</th><th>請假扣款</th><th>員購扣</th><th>勞健保</th><th>實發金額</th><th>發放日</th><th class="no-print text-center">操作</th></tr></thead>
+        <thead><tr><th>月份</th><th>編號</th><th>姓名</th><th>底薪</th><th>實發匯款金額</th><th>發放日</th><th>匯款帳號資訊</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="payrollTableBody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 13. 專業應付帳款管理 (AP Pro) - 支援付款與結轉下期 -->
+  <!-- 13. 專業應付帳款管理 (AP Pro) -->
   <div id="apProView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="input-group input-group-sm mb-3">
@@ -1989,6 +2008,14 @@ MAIN_HTML = """
 
   function switchTab(tab) {
     currentTab = tab;
+    // 檢查權限是否為會計
+    const isAccountant = {{ 'true' if is_accountant else 'false' }};
+    const accountantTabs = ['ap', 'apPro', 'ar', 'arPro', 'printCenter', 'finance', 'payroll'];
+    if (accountantTabs.includes(tab) && !isAccountant) {
+      alert("⚠️ 此功能僅限會計人員 (EMP01 / EMP02) 使用！");
+      return;
+    }
+
     ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
@@ -2734,7 +2761,7 @@ MAIN_HTML = """
     }
   }
 
-  // 人事名冊
+  // 人事名冊 (含匯款帳號)
   function loadEmployees() {
     fetch('/api/employees/list').then(r => r.json()).then(data => {
       cachedEmployees = data || [];
@@ -2747,8 +2774,8 @@ MAIN_HTML = """
           <td>${e.department||'-'}</td>
           <td>${e.title||'-'}</td>
           <td>${e.phone||'-'}</td>
-          <td>${e.hire_date||'-'}</td>
           <td class="text-end">$${e.base_salary.toLocaleString()}</td>
+          <td><span class="text-primary fw-bold">${e.bank_name||'未填'}</span><br><small class="text-muted">${e.bank_account||'未填帳號'}</small></td>
           <td class="text-center"><span class="badge ${e.status==='在職'?'bg-success':'bg-secondary'}">${e.status}</span></td>
           <td class="text-center no-print">
             <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editEmployee(${JSON.stringify(e)})'>✏️ 修改</button>
@@ -2771,6 +2798,8 @@ MAIN_HTML = """
       hire_date: document.getElementById('empHireDate').value,
       base_salary: parseFloat(document.getElementById('empSalary').value) || 0,
       status: document.getElementById('empStatus').value,
+      bank_name: document.getElementById('empBankName').value.trim(),
+      bank_account: document.getElementById('empBankAccount').value.trim(),
       note: ''
     };
     fetch('/api/employees/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
@@ -2790,6 +2819,8 @@ MAIN_HTML = """
     document.getElementById('empHireDate').value = e.hire_date || '';
     document.getElementById('empSalary').value = e.base_salary;
     document.getElementById('empStatus').value = e.status || '在職';
+    document.getElementById('empBankName').value = e.bank_name || '';
+    document.getElementById('empBankAccount').value = e.bank_account || '';
     window.scrollTo({top: 0, behavior: 'smooth'});
   }
 
@@ -2812,7 +2843,7 @@ MAIN_HTML = """
     const sel = document.getElementById('payEmpSelect');
     sel.innerHTML = '<option value="">-- 請選擇員工 --</option>';
     cachedEmployees.forEach(e => {
-      sel.innerHTML += `<option value="${e.emp_id}">${e.emp_name} (${e.emp_id}) - ${e.title||'職員'}</option>`;
+      sel.innerHTML += `<option value="${e.emp_id}">${e.emp_name} (${e.emp_id}) - ${e.bank_name || '未填銀行'}: ${e.bank_account || '無帳號'}</option>`;
     });
   }
 
@@ -2866,50 +2897,21 @@ MAIN_HTML = """
       });
   }
 
-  function editPayrollRecord(p) {
-    document.getElementById('payrollRecordId').value = p.id;
-    document.getElementById('payEmpSelect').value = p.emp_id;
-    document.getElementById('payEmpId').value = p.emp_id;
-    document.getElementById('payMonth').value = p.pay_month;
-    document.getElementById('payBase').value = p.base_salary;
-    document.getElementById('payAllowance').value = p.allowance;
-    document.getElementById('payOvertime').value = p.overtime_pay;
-    document.getElementById('payLeaveDed').value = p.leave_deduction;
-    document.getElementById('payPurDed').value = p.emp_purchase_deduction;
-    document.getElementById('payInsDed').value = p.insurance_deduction;
-    document.getElementById('payDate').value = p.pay_date;
-    document.getElementById('payNote').value = p.note || '';
-    document.getElementById('payrollSubmitBtn').innerText = "✏️ 覆寫修改薪資";
-    calcPayrollNet();
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  }
-
-  function resetPayrollForm() {
-    document.getElementById('payrollForm').reset();
-    document.getElementById('payrollRecordId').value = '';
-    document.getElementById('payMonth').value = new Date().toISOString().slice(0, 7);
-    document.getElementById('payDate').valueAsDate = new Date();
-    document.getElementById('payrollSubmitBtn').innerText = "💾 儲存薪資紀錄";
-  }
-
   function loadPayroll() {
     fetch('/api/payroll/list').then(r => r.json()).then(data => {
       const tb = document.getElementById('payrollTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="12" class="text-center py-3 text-muted">尚無薪資發放紀錄</td></tr>`; return; }
+      if (!data.length) { tb.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-muted">尚無薪資發放紀錄</td></tr>`; return; }
       data.forEach(p => {
+        const emp = cachedEmployees.find(x => x.emp_id === p.emp_id);
+        const bankInfo = emp ? `<span class="text-primary">${emp.bank_name || '未填銀行'}: ${emp.bank_account || '無帳號'}</span>` : '-';
         tb.innerHTML += `<tr>
           <td><strong>${p.pay_month}</strong></td><td>${p.emp_id}</td><td>${p.emp_name}</td>
           <td class="text-end">$${p.base_salary.toLocaleString()}</td>
-          <td class="text-end text-success">+$${p.allowance.toLocaleString()}</td>
-          <td class="text-end text-success">+$${p.overtime_pay.toLocaleString()}</td>
-          <td class="text-end text-danger">-$${p.leave_deduction.toLocaleString()}</td>
-          <td class="text-end text-danger">-$${p.emp_purchase_deduction.toLocaleString()}</td>
-          <td class="text-end text-danger">-$${p.insurance_deduction.toLocaleString()}</td>
           <td class="text-end fw-bold text-success">$${p.net_salary.toLocaleString()}</td>
           <td>${p.pay_date}</td>
+          <td>${bankInfo}</td>
           <td class="text-center no-print">
-            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editPayrollRecord(${JSON.stringify(p)})'>✏️</button>
-            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deletePayroll(${p.id})">🗑️</button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deletePayroll(${p.id})">🗑️ 刪除</button>
           </td>
         </tr>`;
       });
