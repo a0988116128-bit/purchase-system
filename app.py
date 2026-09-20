@@ -128,25 +128,28 @@ def index():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == "POST":
-        user_id = request.form["user_id"]
-        password = request.form["password"]
+    try:
+        if request.method == "POST":
+            user_id = request.form["user_id"]
+            password = request.form["password"]
 
-        conn = get_db_connection()
-        user = conn.execute(
-            "SELECT * FROM users WHERE id = ? AND password = ?", (user_id, password)
-        ).fetchone()
-        conn.close()
+            conn = get_db_connection()
+            user = conn.execute(
+                "SELECT * FROM users WHERE id = ? AND password = ?", (user_id, password)
+            ).fetchone()
+            conn.close()
 
-        if user:
-            session["user_id"] = user["id"]
-            session["user_name"] = user["name"]
-            return redirect(url_for("index"))
-        else:
-            flash("帳號或密碼錯誤，請重新輸入", "danger")
+            if user:
+                session["user_id"] = user["id"]
+                session["user_name"] = user["name"]
+                return redirect(url_for("index"))
+            else:
+                flash("帳號或密碼錯誤，請重新輸入", "danger")
 
-    return render_template("login.html")
-
+        return render_template("login.html")
+    except Exception as e:
+        print(f"DEBUG LOGIN ERROR: {str(e)}")
+        raise e
 
 @app.route("/logout")
 def logout():
