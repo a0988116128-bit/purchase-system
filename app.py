@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_ultimate_enterprise_2026"
+app.secret_key = "pezang_ultimate_enterprise_hr_payroll_2026"
 
 DB_PATH = (
     "/tmp/database.db"
@@ -77,7 +77,40 @@ def init_db():
             )
         """)
 
-        # 6. 採購單主檔與明細
+        # 6. 員工/新進人員名冊主檔
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                emp_id TEXT PRIMARY KEY,
+                emp_name TEXT NOT NULL,
+                department TEXT,
+                title TEXT,
+                phone TEXT,
+                hire_date TEXT,
+                base_salary REAL DEFAULT 0,
+                status TEXT DEFAULT '在職',
+                note TEXT
+            )
+        """)
+
+        # 7. 薪資發放記錄表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS payroll_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id TEXT,
+                emp_name TEXT,
+                pay_month TEXT,
+                base_salary REAL DEFAULT 0,
+                allowance REAL DEFAULT 0,
+                deduction REAL DEFAULT 0,
+                net_salary REAL DEFAULT 0,
+                pay_date TEXT,
+                status TEXT DEFAULT '已發放',
+                note TEXT,
+                created_at TEXT
+            )
+        """)
+
+        # 8. 採購單主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS purchase_orders (
                 po_number TEXT PRIMARY KEY, purchaser TEXT, order_date TEXT, delivery_date TEXT,
@@ -95,7 +128,7 @@ def init_db():
             )
         """)
 
-        # 7. 進貨驗收主檔與明細
+        # 9. 進貨驗收主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inbound_orders (
                 inbound_no TEXT PRIMARY KEY, receiver_name TEXT, warehouse TEXT,
@@ -111,7 +144,7 @@ def init_db():
             )
         """)
 
-        # 8. 客戶訂單主檔與明細
+        # 10. 客戶訂單主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales_orders (
                 so_number TEXT PRIMARY KEY, sales_person TEXT, order_date TEXT,
@@ -127,7 +160,7 @@ def init_db():
             )
         """)
 
-        # 9. 銷貨出貨單主檔與明細
+        # 11. 銷貨出貨單主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS delivery_orders (
                 do_number TEXT PRIMARY KEY, shipper_name TEXT, warehouse TEXT,
@@ -143,7 +176,7 @@ def init_db():
             )
         """)
 
-        # 10. 應付帳款與付款記錄
+        # 12. 應付帳款與付款記錄
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ap_invoices (
                 inbound_no TEXT PRIMARY KEY, inbound_date TEXT, vendor_display TEXT,
@@ -157,48 +190,35 @@ def init_db():
             )
         """)
 
-        # 11. 應收帳款明細表 (支援分次收款、司機、運費、舊貨費等)
+        # 13. 應收帳款明細表
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ar_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id TEXT,
-                customer TEXT,
-                sales_amount REAL,
-                deposit REAL,
-                receive_amount REAL,
-                pay_type TEXT,
-                check_no TEXT,
-                check_due_date TEXT,
-                receive_date TEXT,
-                unpaid_amount REAL,
-                driver TEXT,
-                driver_area TEXT,
-                freight REAL,
-                old_item_fee REAL,
-                keyin_user TEXT,
-                note TEXT,
-                created_at TEXT
+                order_id TEXT, customer TEXT, sales_amount REAL, deposit REAL,
+                receive_amount REAL, pay_type TEXT, check_no TEXT, check_due_date TEXT,
+                receive_date TEXT, unpaid_amount REAL, driver TEXT, driver_area TEXT,
+                freight REAL, old_item_fee REAL, keyin_user TEXT, note TEXT, created_at TEXT
             )
         """)
 
-        # 12. 進銷存交易流水帳
+        # 14. 進銷存交易流水帳
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inventory_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, trans_date TEXT, trans_type TEXT,
+                order_id TEXT, customer_code TEXT, customer_name TEXT, sku TEXT,
+                qty INTEGER, price REAL, total_amount REAL, cogs REAL,
+                keyin_user TEXT, status TEXT, note TEXT, created_at TEXT
+            )
+        """)
+
+        # 15. 業務人員業績與抽成計算表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sales_performance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trans_date TEXT,
-                trans_type TEXT,
-                order_id TEXT,
-                customer_code TEXT,
-                customer_name TEXT,
-                sku TEXT,
-                qty INTEGER,
-                price REAL,
-                total_amount REAL,
-                cogs REAL,
-                keyin_user TEXT,
-                status TEXT,
-                note TEXT,
-                created_at TEXT
+                sales_person TEXT, order_id TEXT, order_date TEXT,
+                customer_name TEXT, sales_amount REAL, commission_rate REAL DEFAULT 0.05,
+                commission_amount REAL, status TEXT DEFAULT '已結算',
+                note TEXT, created_at TEXT
             )
         """)
 
@@ -208,31 +228,16 @@ def init_db():
             cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)",
                 [("01", "黃詠甯", "0320", "系統管理"), ("02", "經辦人員", "1234", "門市經辦"), ("admin", "系統管理員", "pezang888", "系統管理")])
 
-        cursor.execute("SELECT COUNT(*) FROM suppliers")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO suppliers VALUES (?, ?, ?, ?, ?, ?)",
-                [("328", "席德瑞思", "24567891", "王經理", "月結30天", "台新銀行 1234"),
-                 ("427", "興隆", "87654321", "陳小姐", "現金付款", "合作金庫 5678")])
-
-        cursor.execute("SELECT COUNT(*) FROM customers")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO customers VALUES (?, ?, ?, ?, ?)",
-                [("C001", "王小明", "0912-345678", "台北市中正區忠孝東路一段1號", "VIP客戶"),
-                 ("C002", "林美華", "0922-888999", "新北市中和區中原街95號", "櫃體設計案"),
-                 ("C003", "張大山", "0933-123123", "台中市西屯區台灣大道三段", "老客戶介紹")])
-
         cursor.execute("SELECT COUNT(*) FROM warehouses")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("INSERT INTO warehouses (warehouse_name) VALUES (?)",
                 [("八里倉",), ("南倉",), ("土城門市倉",), ("外倉",)])
 
-        cursor.execute("SELECT COUNT(*) FROM inventory_items")
+        cursor.execute("SELECT COUNT(*) FROM employees")
         if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO inventory_items VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
-                ("706004S", "悍高智慧收納五金", "五金配件", 1200, 2500, 50, 10, "熱銷款"),
-                ("101055", "頂級緩衝抽屜組", "櫥櫃五金", 800, 1800, 30, 5, "標準配備"),
-                ("BED-01", "天然乳膠獨立筒床墊 (標準)", "床墊系列", 6000, 15000, 15, 3, "暢銷床墊"),
-                ("FUR-99", "北歐風實木餐邊櫃", "傢俱系列", 8500, 18000, 8, 2, "展示品")
+            cursor.executemany("INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+                ("EMP01", "黃詠甯", "管理部", "會計及特助", "0912-345678", "2024-01-01", 45000, "在職", "核心管理"),
+                ("EMP02", "江婉秀", "門市部", "門市經辦", "0922-888999", "2024-06-01", 35000, "在職", "門市業務")
             ])
 
         conn.commit()
@@ -290,6 +295,82 @@ def get_customer(c_id):
     row = conn.execute("SELECT customer_name FROM customers WHERE customer_code = ?", (c_id,)).fetchone()
     conn.close()
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
+
+
+# --- 員工與薪資 CRUD API ---
+@app.route("/api/employees/list")
+def get_employees():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM employees ORDER BY emp_id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/employees/save", methods=["POST"])
+def save_employee():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        conn.execute("""INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(emp_id) DO UPDATE SET emp_name=?, department=?, title=?, phone=?, hire_date=?, base_salary=?, status=?, note=?""",
+                     (data.get("emp_id"), data.get("emp_name"), data.get("department"), data.get("title"),
+                      data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note"),
+                      data.get("emp_name"), data.get("department"), data.get("title"), data.get("phone"),
+                      data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 員工資料存檔/修改成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/employees/delete/<string:emp_id>", methods=["POST"])
+def delete_employee(emp_id):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM employees WHERE emp_id = ?", (emp_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 員工刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/payroll/list")
+def get_payroll():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM payroll_records ORDER BY pay_month DESC, emp_id ASC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/payroll/save", methods=["POST"])
+def save_payroll():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        base = float(data.get("base_salary", 0))
+        allow = float(data.get("allowance", 0))
+        ded = float(data.get("deduction", 0))
+        net = base + allow - ded
+        
+        conn.execute("""INSERT INTO payroll_records (emp_id, emp_name, pay_month, base_salary, allowance, deduction, net_salary, pay_date, status, note, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (data.get("emp_id"), data.get("emp_name"), data.get("pay_month"), base, allow, ded, net,
+                      data.get("pay_date"), data.get("status", "已發放"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": f"✔ 薪資發放記錄新增成功！實發金額: ${net:,.2f}"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/payroll/delete/<int:pay_id>", methods=["POST"])
+def delete_payroll(pay_id):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM payroll_records WHERE id = ?", (pay_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 薪資紀錄刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 
 # --- 採購與進貨 API ---
@@ -354,7 +435,6 @@ def save_inbound():
                 (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
             
-            # 同步更新庫存
             sku = item.get("model")
             conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
                             VALUES (?, ?, '五金配件', ?, ?, ?, 10, '進貨入庫')
@@ -440,7 +520,6 @@ def save_delivery():
                 (do_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("shipped_qty"), item.get("unit_price"), sub, item.get("remarks")))
             
-            # 扣庫存
             sku = item.get("model")
             conn.execute("UPDATE inventory_items SET stock = stock - ? WHERE sku = ?", (item.get("shipped_qty"), sku))
 
@@ -464,13 +543,42 @@ def get_delivery(do_no):
     return jsonify({"found": True, "header": dict(dOrder), "items": items})
 
 
-# --- 庫存、進銷存流水帳、應收/應付 API ---
+# --- 庫存 CRUD 與進銷存 API ---
 @app.route("/api/inventory/list")
 def get_inventory():
     conn = get_db_connection()
-    rows = conn.execute("SELECT sku, name, category, cost, price, stock FROM inventory_items ORDER BY sku").fetchall()
+    rows = conn.execute("SELECT sku, name, category, cost, price, stock, safety_stock, note FROM inventory_items ORDER BY sku").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+@app.route("/api/inventory/save", methods=["POST"])
+def save_inventory_item():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(sku) DO UPDATE SET name=?, category=?, cost=?, price=?, stock=?, safety_stock=?, note=?""",
+                     (data.get("sku"), data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
+                      data.get("stock"), data.get("safety_stock"), data.get("note"),
+                      data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
+                      data.get("stock"), data.get("safety_stock"), data.get("note")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 商品存檔/修改成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/inventory/delete/<string:sku>", methods=["POST"])
+def delete_inventory_item(sku):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM inventory_items WHERE sku = ?", (sku,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 商品刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 @app.route("/api/inventory/transaction/save", methods=["POST"])
 def save_inventory_transaction():
@@ -510,10 +618,25 @@ def save_inventory_transaction():
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '已入帳', ?, ?)""",
                      (data.get("transDate"), ttype, data.get("orderId"), data.get("customerCode"), data.get("customerName"),
                       sku, qty, price, total_amt, cogs, data.get("keyinUser"), data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
+        if ttype == "銷貨" and data.get("orderId"):
+            sales_person = session.get("user_name", "經辦人員")
+            comm_amt = total_amt * 0.05
+            conn.execute("""INSERT INTO sales_performance (sales_person, order_id, order_date, customer_name, sales_amount, commission_rate, commission_amount, status, note, created_at)
+                            VALUES (?, ?, ?, ?, ?, 0.05, ?, '已結算', ?, ?)""",
+                         (sales_person, data.get("orderId"), data.get("transDate"), data.get("customerName"), total_amt, comm_amt, data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+
         conn.commit()
         conn.close()
         return jsonify({"success": True, "message": f"【{ttype}】單據登錄成功！結轉 COGS: ${cogs:,.0f}"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/sales/performance")
+def get_sales_performance():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM sales_performance ORDER BY order_date DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
 @app.route("/api/ar/search/<string:order_id>")
 def search_ar_record(order_id):
@@ -732,7 +855,7 @@ MAIN_HTML = """
     :root { --primary: #0f172a; --brand: #c59b27; --border: #94a3b8; --text: #1e293b; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background-color: #f1f5f9; color: var(--text); padding: 20px 20px 90px 20px; display: flex; justify-content: center; font-size: 13px; }
-    .container { width: 100%; max-width: 1100px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); overflow: hidden; }
+    .container { width: 100%; max-width: 1150px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); overflow: hidden; }
     .nav-tabs { background: #1e293b; padding: 10px 20px; display: flex; gap: 6px; border-bottom: 2px solid var(--brand); justify-content: space-between; align-items: center; flex-wrap: wrap; }
     .nav-tabs-left { display: flex; gap: 6px; flex-wrap: wrap; }
     .tab-btn { background: #334155; color: #cbd5e1; border: none; padding: 8px 12px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
@@ -785,10 +908,13 @@ MAIN_HTML = """
       <button type="button" class="tab-btn" id="btnTabInbound" onclick="switchTab('inbound')">📦 進貨驗收</button>
       <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
       <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
-      <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存總覽</button>
+      <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存管理</button>
       <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
-      <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收帳款</button>
-      <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 出納對帳單</button>
+      <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績</button>
+      <button type="button" class="tab-btn" id="btnTabHr" onclick="switchTab('hr')">👥 人事名冊</button>
+      <button type="button" class="tab-btn" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統</button>
+      <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收</button>
+      <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 出納對帳</button>
       <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
       <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
       <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務系統</button>
@@ -932,7 +1058,7 @@ MAIN_HTML = """
           <div class="form-group"><label class="required">出貨日期</label><input type="date" id="do_date" required></div>
         </div>
         <div class="grid-3" style="margin-top:8px;">
-          <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:4px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入SO</button></div></div>
+          <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:4px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入PO/SO</button></div></div>
           <div class="form-group"><label>客戶編號</label><input type="text" id="do_customer_code"></div>
           <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="do_customer_name" class="readonly" readonly required></div>
         </div>
@@ -948,16 +1074,43 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 5. 庫存查詢系統 -->
+  <!-- 5. 庫存管理系統 -->
   <div id="inventoryView" class="app-view">
     <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY REPORT (即時庫存總覽)</div></div>
-      <div class="po-company-info"><div>各倉存貨即時連動</div></div>
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY MANAGEMENT (庫存主檔與維護)</div></div>
+      <div class="po-company-info"><div>商品新增、修改、刪除、查詢</div></div>
     </div>
     <div style="padding:20px 30px;">
-      <div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button type="button" class="btn-query" onclick="loadInventory()">🔄 重新整理庫存</button></div>
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">📦 商品建檔與維護（新增或修改）</h6>
+        <form id="inventoryForm" onsubmit="handleInventorySave(event)">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">商品型號 (SKU) *</label><input type="text" id="invSku" class="form-control form-control-sm" placeholder="例: P001" required></div>
+            <div class="col-3"><label class="form-label">商品名稱 *</label><input type="text" id="invName" class="form-control form-control-sm" placeholder="商品名稱" required></div>
+            <div class="col-3"><label class="form-label">分類</label><input type="text" id="invCategory" class="form-control form-control-sm" placeholder="類別"></div>
+            <div class="col-3"><label class="form-label">進貨成本 ($)</label><input type="number" id="invCost" class="form-control form-control-sm" value="0" step="0.01"></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">建議售價 ($)</label><input type="number" id="invPrice" class="form-control form-control-sm" value="0" step="0.01"></div>
+            <div class="col-3"><label class="form-label">現有庫存量</label><input type="number" id="invStock" class="form-control form-control-sm" value="0"></div>
+            <div class="col-3"><label class="form-label">安全庫存</label><input type="number" id="invSafety" class="form-control form-control-sm" value="10"></div>
+            <div class="col-3 d-flex align-items-end gap-1">
+              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存商品</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetInvForm()">重設</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📊 現有商品與庫存清單</h6>
+        <div class="d-flex gap-2">
+          <input type="text" id="invSearchBox" class="form-control form-control-sm" placeholder="搜尋型號或名稱..." oninput="filterInventory()">
+          <button type="button" class="btn-query btn-sm" onclick="loadInventory()">🔄 重新整理</button>
+        </div>
+      </div>
       <table class="items-table">
-        <thead><tr><th>商品型號/SKU</th><th>商品名稱</th><th>分類</th><th>進貨成本</th><th>建議售價</th><th>目前庫存數量</th></tr></thead>
+        <thead><tr><th>型號/SKU</th><th>商品名稱</th><th>分類</th><th>成本</th><th>售價</th><th>庫存量</th><th>安全庫存</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="inventoryTableBody"></tbody>
       </table>
     </div>
@@ -1003,7 +1156,110 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 7. 專業應收帳款管理 (AR Pro) -->
+  <!-- 7. 業務業績統計系統 -->
+  <div id="salesPerfView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES PERFORMANCE (業務人員業績與獎金統計)</div></div>
+      <div class="po-company-info"><div>銷貨自動連動業績計算</div></div>
+    </div>
+    <div style="padding:20px 30px;">
+      <div class="d-flex justify-content-between align-items-center mb-3 no-print">
+        <h5 class="fw-bold text-dark mb-0">🏆 業務人員業績明細表</h5>
+        <button class="btn btn-primary btn-sm fw-bold" onclick="loadSalesPerformance()">🔄 重新整理業績</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>業務人員</th><th>訂單編號</th><th>成交日期</th><th>客戶名稱</th><th>業績金額</th><th>抽成比例</th><th>預估抽成獎金</th><th>狀態</th></tr></thead>
+        <tbody id="salesPerfTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 8. 新進人員/人事名冊管理系統 (HR) -->
+  <div id="hrView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>HR MANAGEMENT (員工與新進人員名冊)</div></div>
+      <div class="po-company-info"><div>人事資料維護與查詢</div></div>
+    </div>
+    <div style="padding:20px 30px;">
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">👤 員工建檔與維護（新增或修改）</h6>
+        <form id="hrForm" onsubmit="handleEmpSave(event)">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">員工編號 *</label><input type="text" id="empId" class="form-control form-control-sm" placeholder="例: EMP03" required></div>
+            <div class="col-3"><label class="form-label">員工姓名 *</label><input type="text" id="empName" class="form-control form-control-sm" placeholder="姓名" required></div>
+            <div class="col-3"><label class="form-label">部門</label><input type="text" id="empDept" class="form-control form-control-sm" placeholder="部門"></div>
+            <div class="col-3"><label class="form-label">職稱</label><input type="text" id="empTitle" class="form-control form-control-sm" placeholder="職稱"></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="empPhone" class="form-control form-control-sm" placeholder="電話"></div>
+            <div class="col-3"><label class="form-label">到職日</label><input type="date" id="empHireDate" class="form-control form-control-sm"></div>
+            <div class="col-3"><label class="form-label">基本底薪 ($)</label><input type="number" id="empSalary" class="form-control form-control-sm" value="35000" step="100"></div>
+            <div class="col-3"><label class="form-label">狀態</label><select id="empStatus" class="form-select form-select-sm"><option value="在職" selected>在職</option><option value="離職">離職</option></select></div>
+          </div>
+          <div class="mt-2 d-flex justify-content-end gap-1">
+            <button type="submit" class="btn btn-success btn-sm fw-bold px-4">💾 儲存員工</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="resetEmpForm()">重設</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📋 員工名冊清單</h6>
+        <button class="btn-query btn-sm" onclick="loadEmployees()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>職稱</th><th>電話</th><th>到職日</th><th>底薪</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="empTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 9. 薪資發放系統 (Payroll) -->
+  <div id="payrollView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PAYROLL SYSTEM (員工薪資與發放管理)</div></div>
+      <div class="po-company-info"><div>薪資計算、發放與查詢</div></div>
+    </div>
+    <div style="padding:20px 30px;">
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">💵 發放薪資作業</h6>
+        <form id="payrollForm" onsubmit="handlePayrollSave(event)">
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label">選擇員工 *</label>
+              <select id="payEmpSelect" class="form-select form-select-sm" onchange="onEmpSelectedForPay()" required></select>
+            </div>
+            <div class="col-4"><label class="form-label">員工編號</label><input type="text" id="payEmpId" class="form-control form-control-sm bg-white" readonly></div>
+            <div class="col-4"><label class="form-label">薪資月份 (YYYY-MM) *</label><input type="month" id="payMonth" class="form-control form-control-sm" required></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">基本底薪 ($)</label><input type="number" id="payBase" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
+            <div class="col-3"><label class="form-label">津貼/獎金 ($)</label><input type="number" id="payAllowance" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
+            <div class="col-3"><label class="form-label">扣款/勞健保 ($)</label><input type="number" id="payDeduction" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
+            <div class="col-3"><label class="form-label text-success fw-bold">實發金額 ($)</label><input type="number" id="payNet" class="form-control form-control-sm fw-bold text-success bg-white" readonly></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-4"><label class="form-label">發放日期 *</label><input type="date" id="payDate" class="form-control form-control-sm" required></div>
+            <div class="col-8"><label class="form-label">備註</label><input type="text" id="payNote" class="form-control form-control-sm" placeholder="備註說明"></div>
+          </div>
+          <div class="mt-2 text-end">
+            <button type="submit" class="btn btn-success btn-sm fw-bold px-4">💾 確認發放薪資</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📜 歷年薪資發放紀錄</h6>
+        <button class="btn-query btn-sm" onclick="loadPayroll()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>月份</th><th>員工編號</th><th>姓名</th><th>底薪</th><th>津貼</th><th>扣款</th><th>實發金額</th><th>發放日期</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="payrollTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 10. 專業應收帳款管理 (AR Pro) -->
   <div id="arProView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
@@ -1092,7 +1348,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 8. 出納對帳單列印中心 -->
+  <!-- 11. 出納對帳單列印中心 -->
   <div id="printCenterView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER CASH REPORT (出納對帳與交現結算)</div></div>
@@ -1119,7 +1375,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 9. 應付帳款系統 (含月份與日期區間篩選) -->
+  <!-- 12. 應付帳款系統 -->
   <div id="apView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款與付款管理)</div></div>
@@ -1144,7 +1400,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 10. 應收帳款系統 (含月份與日期區間篩選) -->
+  <!-- 13. 應收帳款系統 -->
   <div id="arView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款與收款管理)</div></div>
@@ -1169,7 +1425,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 11. 財務系統 -->
+  <!-- 14. 財務系統 -->
   <div id="financeView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD (財務報表總覽)</div></div>
@@ -1224,14 +1480,17 @@ MAIN_HTML = """
   let currentTab = 'purchase';
   let warehouseOptionsList = ['八里倉', '南倉', '土城門市倉', '外倉'];
   let cachedInventory = [];
+  let cachedEmployees = [];
   let arBaseOrder = null;
   let arEditTargetRow = 0;
 
   window.addEventListener('DOMContentLoaded', () => {
-    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'transDate'].forEach(id => {
+    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'transDate', 'empHireDate', 'payDate'].forEach(id => {
       const el = document.getElementById(id); if (el) el.valueAsDate = new Date();
     });
     const mEl = document.getElementById('in_month'); if (mEl) mEl.value = new Date().toISOString().slice(0, 7);
+    const payMEl = document.getElementById('payMonth'); if (payMEl) payMEl.value = new Date().toISOString().slice(0, 7);
+
     const today = new Date();
     const firstDayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-01";
     const todayStr = today.toISOString().split("T")[0];
@@ -1241,13 +1500,14 @@ MAIN_HTML = """
     for (let i = 0; i < 4; i++) { addPoItemRow(); addSoItemRow(); }
     fetch('/api/warehouses').then(r => r.json()).then(d => { if (d && d.length) warehouseOptionsList = d; });
     loadInventory();
+    loadEmployees();
     updateDriverLogic();
     toggleARCheckFields();
   });
 
   function switchTab(tab) {
     currentTab = tab;
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'trans', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'trans', 'salesPerf', 'hr', 'payroll', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
@@ -1255,6 +1515,9 @@ MAIN_HTML = """
     });
     if (tab === 'inventory') loadInventory();
     else if (tab === 'trans') prepareTransForm();
+    else if (tab === 'salesPerf') loadSalesPerformance();
+    else if (tab === 'hr') loadEmployees();
+    else if (tab === 'payroll') loadPayroll();
     else if (tab === 'ap') loadAP();
     else if (tab === 'ar') loadAR();
     else if (tab === 'finance') loadFinance();
@@ -1285,6 +1548,9 @@ MAIN_HTML = """
     else if (currentTab === 'delivery') document.getElementById('deliveryForm').requestSubmit();
     else if (currentTab === 'trans') document.getElementById('transForm').requestSubmit();
     else if (currentTab === 'arPro') document.getElementById('arForm').requestSubmit();
+    else if (currentTab === 'inventory') document.getElementById('inventoryForm').requestSubmit();
+    else if (currentTab === 'hr') document.getElementById('hrForm').requestSubmit();
+    else if (currentTab === 'payroll') document.getElementById('payrollForm').requestSubmit();
   }
 
   function resetCurrentForm() {
@@ -1595,16 +1861,83 @@ MAIN_HTML = """
     });
   }
 
-  // 庫存、進退/銷退
+  // 庫存 CRUD 管理
   function loadInventory() {
     fetch('/api/inventory/list').then(r => r.json()).then(data => {
       cachedInventory = data || [];
-      const tb = document.getElementById('inventoryTableBody'); tb.innerHTML = '';
-      if (!cachedInventory.length) { tb.innerHTML = `<tr><td colspan="6" class="text-muted py-3">尚無庫存資料</td></tr>`; return; }
-      cachedInventory.forEach(item => {
-        tb.innerHTML += `<tr><td>${item.sku}</td><td class="text-start">${item.name}</td><td>${item.category}</td><td class="text-end">$${item.cost.toLocaleString()}</td><td class="text-end">$${item.price.toLocaleString()}</td><td class="text-end fw-bold text-success">${item.stock.toLocaleString()} 件</td></tr>`;
-      });
+      renderInventoryTable(cachedInventory);
     });
+  }
+
+  function renderInventoryTable(items) {
+    const tb = document.getElementById('inventoryTableBody'); tb.innerHTML = '';
+    if (!items.length) { tb.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-muted">尚無商品與庫存資料，請於上方新增</td></tr>`; return; }
+    items.forEach(item => {
+      tb.innerHTML += `<tr>
+        <td><strong>${item.sku}</strong></td>
+        <td class="text-start">${item.name}</td>
+        <td>${item.category||'-'}</td>
+        <td class="text-end">$${item.cost.toLocaleString()}</td>
+        <td class="text-end">$${item.price.toLocaleString()}</td>
+        <td class="text-end fw-bold text-success">${item.stock.toLocaleString()} 件</td>
+        <td class="text-end">${item.safety_stock}</td>
+        <td class="text-center no-print">
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editInventoryItem(${JSON.stringify(item)})'>✏️ 修改</button>
+          <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteInventoryItem('${item.sku}')">🗑️ 刪除</button>
+        </td>
+      </tr>`;
+    });
+  }
+
+  function filterInventory() {
+    const keyword = document.getElementById('invSearchBox').value.toLowerCase();
+    const filtered = cachedInventory.filter(item => item.sku.toLowerCase().includes(keyword) || item.name.toLowerCase().includes(keyword));
+    renderInventoryTable(filtered);
+  }
+
+  function handleInventorySave(e) {
+    e.preventDefault();
+    const payload = {
+      sku: document.getElementById('invSku').value.trim(),
+      name: document.getElementById('invName').value.trim(),
+      category: document.getElementById('invCategory').value.trim(),
+      cost: parseFloat(document.getElementById('invCost').value) || 0,
+      price: parseFloat(document.getElementById('invPrice').value) || 0,
+      stock: parseInt(document.getElementById('invStock').value) || 0,
+      safety_stock: parseInt(document.getElementById('invSafety').value) || 10,
+      note: ''
+    };
+    fetch('/api/inventory/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { resetInvForm(); loadInventory(); }
+      });
+  }
+
+  function editInventoryItem(item) {
+    document.getElementById('invSku').value = item.sku;
+    document.getElementById('invSku').readOnly = true;
+    document.getElementById('invName').value = item.name;
+    document.getElementById('invCategory').value = item.category || '';
+    document.getElementById('invCost').value = item.cost;
+    document.getElementById('invPrice').value = item.price;
+    document.getElementById('invStock').value = item.stock;
+    document.getElementById('invSafety').value = item.safety_stock;
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  function deleteInventoryItem(sku) {
+    if (confirm(`確定要刪除商品【${sku}】嗎？`)) {
+      fetch(`/api/inventory/delete/${sku}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadInventory();
+      });
+    }
+  }
+
+  function resetInvForm() {
+    document.getElementById('inventoryForm').reset();
+    document.getElementById('invSku').readOnly = false;
   }
 
   function prepareTransForm() {
@@ -1641,6 +1974,175 @@ MAIN_HTML = """
         alert(res.message);
         if (res.success) { document.getElementById('transForm').reset(); document.getElementById('transDate').value = new Date().toISOString().split("T")[0]; loadInventory(); }
       });
+  }
+
+  function loadSalesPerformance() {
+    fetch('/api/sales/performance').then(r => r.json()).then(data => {
+      const tb = document.getElementById('salesPerfTableBody'); tb.innerHTML = '';
+      if (!data.length) { tb.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-muted">尚無業務業績紀錄</td></tr>`; return; }
+      data.forEach(d => {
+        tb.innerHTML += `<tr><td><strong>${d.sales_person}</strong></td><td>${d.order_id||'-'}</td><td>${d.order_date}</td><td>${d.customer_name}</td><td class="text-end">$${d.sales_amount.toLocaleString()}</td><td class="text-center">${(d.commission_rate*100)}%</td><td class="text-end fw-bold text-success">$${d.commission_amount.toLocaleString()}</td><td class="text-center"><span class="badge bg-success">${d.status}</span></td></tr>`;
+      });
+    });
+  }
+
+  // 人事名冊 (HR CRUD)
+  function loadEmployees() {
+    fetch('/api/employees/list').then(r => r.json()).then(data => {
+      cachedEmployees = data || [];
+      const tb = document.getElementById('empTableBody'); tb.innerHTML = '';
+      if (!cachedEmployees.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">尚無員工資料</td></tr>`; return; }
+      cachedEmployees.forEach(e => {
+        tb.innerHTML += `<tr>
+          <td><strong>${e.emp_id}</strong></td>
+          <td>${e.emp_name}</td>
+          <td>${e.department||'-'}</td>
+          <td>${e.title||'-'}</td>
+          <td>${e.phone||'-'}</td>
+          <td>${e.hire_date||'-'}</td>
+          <td class="text-end">$${e.base_salary.toLocaleString()}</td>
+          <td class="text-center"><span class="badge ${e.status==='在職'?'bg-success':'bg-secondary'}">${e.status}</span></td>
+          <td class="text-center no-print">
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editEmployee(${JSON.stringify(e)})'>✏️ 修改</button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteEmployee('${e.emp_id}')">🗑️ 刪除</button>
+          </td>
+        </tr>`;
+      });
+      preparePayrollEmpSelect();
+    });
+  }
+
+  function handleEmpSave(e) {
+    e.preventDefault();
+    const payload = {
+      emp_id: document.getElementById('empId').value.trim(),
+      emp_name: document.getElementById('empName').value.trim(),
+      department: document.getElementById('empDept').value.trim(),
+      title: document.getElementById('empTitle').value.trim(),
+      phone: document.getElementById('empPhone').value.trim(),
+      hire_date: document.getElementById('empHireDate').value,
+      base_salary: parseFloat(document.getElementById('empSalary').value) || 0,
+      status: document.getElementById('empStatus').value,
+      note: ''
+    };
+    fetch('/api/employees/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { resetEmpForm(); loadEmployees(); }
+      });
+  }
+
+  function editEmployee(e) {
+    document.getElementById('empId').value = e.emp_id;
+    document.getElementById('empId').readOnly = true;
+    document.getElementById('empName').value = e.emp_name;
+    document.getElementById('empDept').value = e.department || '';
+    document.getElementById('empTitle').value = e.title || '';
+    document.getElementById('empPhone').value = e.phone || '';
+    document.getElementById('empHireDate').value = e.hire_date || '';
+    document.getElementById('empSalary').value = e.base_salary;
+    document.getElementById('empStatus').value = e.status || '在職';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  function deleteEmployee(empId) {
+    if (confirm(`確定要刪除員工【${empId}】嗎？`)) {
+      fetch(`/api/employees/delete/${empId}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadEmployees();
+      });
+    }
+  }
+
+  function resetEmpForm() {
+    document.getElementById('hrForm').reset();
+    document.getElementById('empId').readOnly = false;
+  }
+
+  // 薪資系統
+  function preparePayrollEmpSelect() {
+    const sel = document.getElementById('payEmpSelect');
+    sel.innerHTML = '<option value="">-- 請選擇員工 --</option>';
+    cachedEmployees.forEach(e => {
+      sel.innerHTML += `<option value="${e.emp_id}">${e.emp_name} (${e.emp_id}) - ${e.title||'職員'}</option>`;
+    });
+  }
+
+  function onEmpSelectedForPay() {
+    const empId = document.getElementById('payEmpSelect').value;
+    const emp = cachedEmployees.find(x => x.emp_id === empId);
+    if (emp) {
+      document.getElementById('payEmpId').value = emp.emp_id;
+      document.getElementById('payBase').value = emp.base_salary;
+      calcPayrollNet();
+    } else {
+      document.getElementById('payEmpId').value = '';
+      document.getElementById('payBase').value = 0;
+      calcPayrollNet();
+    }
+  }
+
+  function calcPayrollNet() {
+    const base = parseFloat(document.getElementById('payBase').value) || 0;
+    const allow = parseFloat(document.getElementById('payAllowance').value) || 0;
+    const ded = parseFloat(document.getElementById('payDeduction').value) || 0;
+    document.getElementById('payNet').value = (base + allow - ded).toFixed(2);
+  }
+
+  function handlePayrollSave(e) {
+    e.preventDefault();
+    const empId = document.getElementById('payEmpId').value;
+    const emp = cachedEmployees.find(x => x.emp_id === empId);
+    if (!emp) return alert("請先選擇員工！");
+
+    const payload = {
+      emp_id: empId,
+      emp_name: emp.emp_name,
+      pay_month: document.getElementById('payMonth').value,
+      base_salary: parseFloat(document.getElementById('payBase').value) || 0,
+      allowance: parseFloat(document.getElementById('payAllowance').value) || 0,
+      deduction: parseFloat(document.getElementById('payDeduction').value) || 0,
+      pay_date: document.getElementById('payDate').value,
+      status: '已發放',
+      note: document.getElementById('payNote').value.trim()
+    };
+    fetch('/api/payroll/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { document.getElementById('payrollForm').reset(); document.getElementById('payMonth').value = new Date().toISOString().slice(0, 7); document.getElementById('payDate').valueAsDate = new Date(); loadPayroll(); }
+      });
+  }
+
+  function loadPayroll() {
+    fetch('/api/payroll/list').then(r => r.json()).then(data => {
+      const tb = document.getElementById('payrollTableBody'); tb.innerHTML = '';
+      if (!data.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">尚無薪資發放紀錄</td></tr>`; return; }
+      data.forEach(p => {
+        tb.innerHTML += `<tr>
+          <td><strong>${p.pay_month}</strong></td>
+          <td>${p.emp_id}</td>
+          <td>${p.emp_name}</td>
+          <td class="text-end">$${p.base_salary.toLocaleString()}</td>
+          <td class="text-end">$${p.allowance.toLocaleString()}</td>
+          <td class="text-end text-danger">$${p.deduction.toLocaleString()}</td>
+          <td class="text-end fw-bold text-success">$${p.net_salary.toLocaleString()}</td>
+          <td>${p.pay_date}</td>
+          <td class="text-center"><span class="badge bg-success">${p.status}</span></td>
+          <td class="text-center no-print">
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deletePayroll(${p.id})">🗑️ 刪除</button>
+          </td>
+        </tr>`;
+      });
+    });
+  }
+
+  function deletePayroll(id) {
+    if (confirm("確定要刪除這筆薪資發放紀錄嗎？")) {
+      fetch(`/api/payroll/delete/${id}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadPayroll();
+      });
+    }
   }
 
   // 專業應收帳款 (AR Pro)
@@ -1983,6 +2485,37 @@ SUPPLIERS_HTML = """
 </body>
 </html>
 """
+
+# API 路由補充：庫存與人事薪資 CRUD
+@app.route("/api/inventory/save", methods=["POST"])
+def api_save_inventory():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(sku) DO UPDATE SET name=?, category=?, cost=?, price=?, stock=?, safety_stock=?, note=?""",
+                     (data.get("sku"), data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
+                      data.get("stock"), data.get("safety_stock"), data.get("note"),
+                      data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
+                      data.get("stock"), data.get("safety_stock"), data.get("note")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 商品存檔/修改成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/inventory/delete/<string:sku>", methods=["POST"])
+def api_delete_inventory(sku):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM inventory_items WHERE sku = ?", (sku,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 商品刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
