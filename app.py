@@ -11,7 +11,7 @@ app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 # 請將 你的真實密碼 替換為你建立 Supabase 時設定的資料庫密碼
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
-    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin0320@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 def get_db_connection():
