@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_spacious_enterprise_pro_2026"
+app.secret_key = "pezang_grouped_nav_pro_2026"
 
 DB_PATH = (
     "/tmp/database.db"
@@ -102,7 +102,6 @@ def init_db():
             )
         """)
 
-        # 銷貨發票與進項發票系統
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS invoices (
                 invoice_no TEXT PRIMARY KEY, invoice_date TEXT, invoice_type TEXT,
@@ -257,14 +256,14 @@ def get_customer(c_id):
 
 # --- 客戶建立 CRUD API ---
 @app.route("/api/customers/list")
-def get_customers():
+def api_get_customers():
     conn = get_db_connection()
     rows = conn.execute("SELECT * FROM customers ORDER BY customer_code").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
 @app.route("/api/customers/save", methods=["POST"])
-def save_customer():
+def api_save_customer():
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     data = request.get_json()
     try:
@@ -281,7 +280,7 @@ def save_customer():
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 @app.route("/api/customers/delete/<string:c_code>", methods=["POST"])
-def delete_customer(c_code):
+def api_delete_customer(c_code):
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
     try:
         conn = get_db_connection()
@@ -815,7 +814,7 @@ def get_finance_summary():
     })
 
 
-# --- 供應商與客戶管理頁面 ---
+# --- 供應商管理頁面 ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
@@ -897,12 +896,17 @@ MAIN_HTML = """
     body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
     .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
     
-    .nav-tabs { background: #0f172a; padding: 12px 20px; display: flex; gap: 6px; border-bottom: 3px solid var(--brand); justify-content: space-between; align-items: center; flex-wrap: wrap; }
-    .nav-tabs-left { display: flex; gap: 5px; flex-wrap: wrap; }
-    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 6px 11px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
+    /* 結構化群組分層導覽列 */
+    .nav-header-wrapper { background: #0f172a; border-bottom: 3px solid var(--brand); padding: 10px 20px; }
+    .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
+    .nav-group-row:last-child { border-bottom: none; }
+    .nav-group-title { color: #f59e0b; font-size: 11.5px; font-weight: 700; min-width: 110px; display: inline-flex; align-items: center; gap: 4px; }
+    .nav-group-buttons { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+
+    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; transition: all 0.2s ease; }
     .tab-btn:hover { background: #334155; color: #fff; }
     .tab-btn.active { background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(197, 155, 39, 0.4); }
-    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
+    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; }
     .btn-supplier-link:hover { background: #0369a1; color: #fff; }
 
     .po-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--brand); }
@@ -948,12 +952,12 @@ MAIN_HTML = """
     .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 12px; margin-top: 10px; }
     .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
     .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-top: 16px; }
-    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
     
     .app-view { display: none; } .app-view.active { display: block; }
     
     @media print { 
-      .nav-tabs, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } 
+      .nav-header-wrapper, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } 
       body { background-color: #fff; padding: 0; } 
       .container { box-shadow: none; border: none; width: 100%; max-width: 100%; } 
       form { padding: 10px; } 
@@ -963,27 +967,51 @@ MAIN_HTML = """
 <body>
 
 <div class="container" id="appContainer">
-  <div class="nav-tabs">
-    <div class="nav-tabs-left">
-      <button type="button" class="tab-btn active" id="btnTabPurchase" onclick="switchTab('purchase')">📄 採購單</button>
-      <button type="button" class="tab-btn" id="btnTabInbound" onclick="switchTab('inbound')">📦 進貨驗收</button>
-      <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
-      <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
-      <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存管理</button>
-      <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
-      <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
-      <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績</button>
-      <button type="button" class="tab-btn" id="btnTabCreditCard" onclick="switchTab('creditCard')">💳 刷卡/退刷</button>
-      <button type="button" class="tab-btn" id="btnTabInvoice" onclick="switchTab('invoice')">🧾 發票系統</button>
-      <button type="button" class="tab-btn" id="btnTabHr" onclick="switchTab('hr')">👥 人事名冊</button>
-      <button type="button" class="tab-btn" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統</button>
-      <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收</button>
-      <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 司機運費對帳</button>
-      <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
-      <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
-      <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務與傳票</button>
+  <!-- 結構化分類導覽列 -->
+  <div class="nav-header-wrapper">
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
+        <a href="{{ url_for('suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-truck-field"></i> 供應商管理</a>
+      </div>
     </div>
-    <div><a href="{{ url_for('suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-address-book"></i> 供應商管理</a></div>
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-boxes-stacked"></i> 採購與進貨：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn active" id="btnTabPurchase" onclick="switchTab('purchase')">📄 採購單</button>
+        <button type="button" class="tab-btn" id="btnTabInbound" onclick="switchTab('inbound')">📦 進貨驗收</button>
+      </div>
+    </div>
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-cart-shopping"></i> 訂單與銷貨：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
+        <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
+        <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績</button>
+      </div>
+    </div>
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-calculator"></i> 帳款與財務：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
+        <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
+        <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收</button>
+        <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 司機運費對帳</button>
+        <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務與傳票</button>
+      </div>
+    </div>
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-warehouse"></i> 庫存與行政：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存管理</button>
+        <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
+        <button type="button" class="tab-btn" id="btnTabCreditCard" onclick="switchTab('creditCard')">💳 刷卡/退刷</button>
+        <button type="button" class="tab-btn" id="btnTabInvoice" onclick="switchTab('invoice')">🧾 發票系統</button>
+        <button type="button" class="tab-btn" id="btnTabHr" onclick="switchTab('hr')">👥 人事名冊</button>
+        <button type="button" class="tab-btn" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統</button>
+      </div>
+    </div>
   </div>
 
   <!-- 1. 採購單系統 -->
@@ -1189,7 +1217,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 6. 客戶建立系統 (Customer Master) -->
+  <!-- 6. 客戶建立系統 -->
   <div id="customerView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CUSTOMER MASTER (客戶資料主檔建立)</div></div>
