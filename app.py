@@ -6,11 +6,20 @@ app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 
 
-def get_db_connection():
-  conn = sqlite3.connect("database.db")
-  conn.row_factory = sqlite3.Row
-  return conn
+import os
 
+# 判斷是否在 Render 雲端環境（Render 會自動設定環境變數）
+if os.environ.get("RENDER"):
+    DB_PATH = "/tmp/database.db"
+    # 如果雲端暫存檔還不存在，從本地複製一份結構過去（或讓 init_db 自動建立）
+else:
+    DB_PATH = "database.db"
+
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
   conn = get_db_connection()
@@ -313,5 +322,3 @@ def po_add():
   )
 
 
-if __name__ == "__main__":
-  app.run(debug=True, port=5000)
