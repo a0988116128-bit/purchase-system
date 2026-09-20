@@ -7,15 +7,14 @@ import psycopg2.extras
 app = Flask(__name__)
 app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 
-# 設定你的 Supabase PostgreSQL 雲端資料庫連線字串
-# 請把 YOUR_PASSWORD 替換成你建立 Supabase 時設定的資料庫密碼
+# 設定你的 Supabase PostgreSQL 雲端資料庫連線字串 (Session Pooler)
+# 請將 你的真實密碼 替換為你建立 Supabase 時設定的資料庫密碼
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
-    "postgresql://postgres:YOUR_PASSWORD@db.gutyrssxtpuxndflkceq.supabase.co:5432/postgres"
+    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin0320@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 def get_db_connection():
-    # 連線到 PostgreSQL 並設定 Row 格式以便像字典一樣取值
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
