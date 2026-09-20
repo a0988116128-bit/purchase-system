@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_ultimate_enterprise_v4_2026"
+app.secret_key = "pezang_ultimate_chart_of_accounts_2026"
 
 DB_PATH = (
     "/tmp/database.db"
@@ -29,6 +29,15 @@ def init_db():
         cursor.execute("CREATE TABLE IF NOT EXISTS inventory_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, safety_stock INTEGER DEFAULT 0, note TEXT)")
         cursor.execute("CREATE TABLE IF NOT EXISTS employees (emp_id TEXT PRIMARY KEY, emp_name TEXT NOT NULL, department TEXT, title TEXT, phone TEXT, hire_date TEXT, base_salary REAL DEFAULT 0, status TEXT DEFAULT '在職', note TEXT)")
         
+        # 完整會計科目表主檔 (Chart of Accounts)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chart_of_accounts (
+                account_code TEXT PRIMARY KEY,
+                account_name TEXT NOT NULL,
+                account_category TEXT NOT NULL
+            )
+        """)
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS payroll_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, emp_id TEXT, emp_name TEXT, pay_month TEXT,
@@ -75,6 +84,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS sales_orders (
                 so_number TEXT PRIMARY KEY, sales_person TEXT, order_date TEXT,
                 customer_code TEXT, customer_name TEXT, currency TEXT, grand_total REAL,
+                deposit_paid REAL DEFAULT 0, pay_method TEXT DEFAULT '現金', balance_due REAL DEFAULT 0,
                 remark TEXT, created_at TEXT
             )
         """)
@@ -86,7 +96,6 @@ def init_db():
             )
         """)
 
-        # 銷貨出貨單 (新增 driver 與 manual_freight 欄位)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS delivery_orders (
                 do_number TEXT PRIMARY KEY, shipper_name TEXT, warehouse TEXT,
@@ -99,6 +108,22 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT, do_number TEXT, warehouse TEXT,
                 model TEXT, product_name TEXT, specification TEXT, color TEXT,
                 shipped_qty INTEGER, unit_price REAL, subtotal REAL, remarks TEXT
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invoices (
+                invoice_no TEXT PRIMARY KEY, invoice_date TEXT, invoice_type TEXT,
+                customer_name TEXT, tax_id TEXT, sales_amount REAL, tax_amount REAL,
+                total_amount REAL, status TEXT DEFAULT '正常', note TEXT, created_at TEXT
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS credit_card_txns (
+                txn_id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT, customer_name TEXT,
+                txn_type TEXT DEFAULT '刷卡收入', amount REAL, auth_code TEXT, card_last4 TEXT,
+                txn_date TEXT, note TEXT, created_at TEXT
             )
         """)
 
@@ -134,7 +159,6 @@ def init_db():
             )
         """)
 
-        # 業務業績表 (支援手動輸入或銷貨連動)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales_performance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,7 +169,6 @@ def init_db():
             )
         """)
 
-        # 會計傳票主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vouchers (
                 voucher_no TEXT PRIMARY KEY, voucher_date TEXT, voucher_type TEXT,
@@ -158,6 +181,31 @@ def init_db():
                 account_code TEXT, account_name TEXT, debit REAL DEFAULT 0, credit REAL DEFAULT 0
             )
         """)
+
+        # 預設會計科目初始化 (1~6級與常用科目)
+        cursor.execute("SELECT COUNT(*) FROM chart_of_accounts")
+        if cursor.fetchone()[0] == 0:
+            default_accounts = [
+                ("1101", "現金", "資產"),
+                ("1102", "銀行存款", "資產"),
+                ("1141", "應收票據", "資產"),
+                ("1148", "應收帳款", "資產"),
+                ("1201", "存貨", "資產"),
+                ("2141", "應付票據", "負債"),
+                ("2142", "應付帳款", "負債"),
+                ("3101", "資本主資本", "權益"),
+                ("3351", "保留盈餘", "權益"),
+                ("4111", "銷貨收入", "營業收入"),
+                ("5111", "銷貨成本", "營業成本"),
+                ("6111", "薪資費用", "營業費用"),
+                ("6141", "租金費用", "營業費用"),
+                ("6171", "運費", "營業費用"),
+                ("6181", "廣告費", "營業費用"),
+                ("6211", "水電瓦斯費", "營業費用"),
+                ("6221", "文具消耗品", "營業費用"),
+                ("6231", "勞健保費", "營業費用")
+            ]
+            cursor.executemany("INSERT INTO chart_of_accounts VALUES (?, ?, ?)", default_accounts)
 
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
@@ -232,8 +280,133 @@ def get_customer(c_id):
     conn.close()
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
+@app.route("/api/accounts/list")
+def get_accounts():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM chart_of_accounts ORDER BY account_code ASC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
-# --- 員工與薪資 CRUD API ---
+
+# --- 訂單與銷貨 API ---
+@app.route("/api/so/save", methods=["POST"])
+def save_so():
+    if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
+    data = request.get_json()
+    so_no = data.get("so_no")
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM sales_orders WHERE so_number = ?", (so_no,))
+        conn.execute("DELETE FROM sales_items WHERE so_number = ?", (so_no,))
+        
+        grand_total = float(data.get("grand_total", 0))
+        deposit_paid = float(data.get("deposit_paid", 0))
+        balance_due = max(0, grand_total - deposit_paid)
+
+        conn.execute("INSERT INTO sales_orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (so_no, data.get("sales_person"), data.get("order_date"), data.get("customer_code"),
+             data.get("customer_name"), data.get("currency"), grand_total, deposit_paid,
+             data.get("pay_method", "現金"), balance_due, data.get("remark"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
+        for item in data.get("items", []):
+            conn.execute("INSERT INTO sales_items (so_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?)",
+                (so_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
+                 item.get("qty"), item.get("unit_price"), item.get("total"), item.get("remarks")))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except Exception as e: return jsonify({"status": "error", "message": str(e)})
+
+@app.route("/api/so/<string:so_no>")
+def get_so(so_no):
+    conn = get_db_connection()
+    so = conn.execute("SELECT * FROM sales_orders WHERE so_number = ?", (so_no,)).fetchone()
+    if not so:
+        conn.close()
+        return jsonify({"found": False, "message": "找不到客戶訂單"})
+    items = [dict(r) for r in conn.execute("SELECT model, product_name as name, specification as size, color, quantity as qty, unit_price, subtotal as total, remarks FROM sales_items WHERE so_number = ?", (so_no,)).fetchall()]
+    conn.close()
+    return jsonify({"found": True, "header": dict(so), "items": items})
+
+
+# --- 信用卡金流 API ---
+@app.route("/api/creditcard/list")
+def get_creditcard_txns():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM credit_card_txns ORDER BY txn_date DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/creditcard/save", methods=["POST"])
+def save_creditcard_txn():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        conn.execute("""INSERT INTO credit_card_txns (order_id, customer_name, txn_type, amount, auth_code, card_last4, txn_date, note, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (data.get("order_id"), data.get("customer_name"), data.get("txn_type", "刷卡收入"),
+                      float(data.get("amount", 0)), data.get("auth_code"), data.get("card_last4"),
+                      data.get("txn_date"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 信用卡交易/退刷紀錄存檔成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/creditcard/delete/<int:txn_id>", methods=["POST"])
+def delete_creditcard_txn(txn_id):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM credit_card_txns WHERE txn_id = ?", (txn_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 信用卡紀錄刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+
+# --- 發票系統 API ---
+@app.route("/api/invoices/list")
+def get_invoices():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM invoices ORDER BY invoice_date DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/invoices/save", methods=["POST"])
+def save_invoice():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        amt = float(data.get("sales_amount", 0))
+        tax = float(data.get("tax_amount", 0))
+        total = amt + tax
+        conn.execute("""INSERT INTO invoices (invoice_no, invoice_date, invoice_type, customer_name, tax_id, sales_amount, tax_amount, total_amount, status, note, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(invoice_no) DO UPDATE SET invoice_date=?, invoice_type=?, customer_name=?, tax_id=?, sales_amount=?, tax_amount=?, total_amount=?, status=?, note=?""",
+                     (data.get("invoice_no"), data.get("invoice_date"), data.get("invoice_type"), data.get("customer_name"),
+                      data.get("tax_id"), amt, tax, total, data.get("status", "正常"), data.get("note"),
+                      data.get("invoice_date"), data.get("invoice_type"), data.get("customer_name"), data.get("tax_id"),
+                      amt, tax, total, data.get("status", "正常"), data.get("note")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 發票開立/修改成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/invoices/delete/<string:inv_no>", methods=["POST"])
+def delete_invoice(inv_no):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        conn.execute("DELETE FROM invoices WHERE invoice_no = ?", (inv_no,))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 發票刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+
+# --- 其他原有 CRUD API ---
 @app.route("/api/employees/list")
 def get_employees():
     conn = get_db_connection()
@@ -290,7 +463,6 @@ def save_payroll():
         pur_ded = float(data.get("emp_purchase_deduction", 0))
         ins_ded = float(data.get("insurance_deduction", 0))
         net = base + allow + ot - leave_ded - pur_ded - ins_ded
-        
         p_id = data.get("payroll_id")
         if p_id:
             conn.execute("""UPDATE payroll_records SET base_salary=?, allowance=?, overtime_pay=?, leave_deduction=?, emp_purchase_deduction=?, insurance_deduction=?, net_salary=?, pay_date=?, status=?, note=? WHERE id=?""",
@@ -316,8 +488,6 @@ def delete_payroll(pay_id):
         return jsonify({"success": True, "message": "✔ 薪資紀錄刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-
-# --- 採購與進貨 API ---
 @app.route("/api/po/save", methods=["POST"])
 def save_po():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -362,14 +532,11 @@ def save_inbound():
         conn = get_db_connection()
         conn.execute("DELETE FROM inbound_orders WHERE inbound_no = ?", (in_no,))
         conn.execute("DELETE FROM inbound_items WHERE inbound_no = ?", (in_no,))
-        
         v_id = data.get("vendor_id", "") or ""
         v_name = data.get("vendor_name", "") or "未命名供應商"
-
         conn.execute("INSERT INTO inbound_orders VALUES (?,?,?,?,?,?,?,?,?)",
             (in_no, data.get("receiver_name"), data.get("warehouse", "八里倉"), data.get("po_no"),
              data.get("inbound_date"), data.get("month"), v_id, v_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        
         total_amt = 0
         for item in data.get("items", []):
             sub = item.get("actual_qty", 0) * item.get("unit_price", 0)
@@ -378,13 +545,11 @@ def save_inbound():
             conn.execute("INSERT INTO inbound_items (inbound_no, warehouse, model, product_name, specification, color, ordered_qty, actual_qty, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
-            
             sku = item.get("model")
             conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
                             VALUES (?, ?, '五金配件', ?, ?, ?, 10, '進貨入庫')
                             ON CONFLICT(sku) DO UPDATE SET stock = stock + ?""",
                          (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty"), item.get("actual_qty")))
-
         v_display = f"{v_id} {v_name}".strip() if v_id else v_name
         conn.execute("INSERT OR REPLACE INTO ap_invoices VALUES (?,?,?,?, '月結30天', ?, '未付')",
             (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
@@ -404,40 +569,6 @@ def get_inbound(in_no):
     conn.close()
     return jsonify({"found": True, "header": dict(order), "items": items})
 
-
-# --- 訂單與銷貨 API ---
-@app.route("/api/so/save", methods=["POST"])
-def save_so():
-    if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
-    data = request.get_json()
-    so_no = data.get("so_no")
-    try:
-        conn = get_db_connection()
-        conn.execute("DELETE FROM sales_orders WHERE so_number = ?", (so_no,))
-        conn.execute("DELETE FROM sales_items WHERE so_number = ?", (so_no,))
-        conn.execute("INSERT INTO sales_orders VALUES (?,?,?,?,?,?,?,?,?)",
-            (so_no, data.get("sales_person"), data.get("order_date"), data.get("customer_code"),
-             data.get("customer_name"), data.get("currency"), data.get("grand_total", 0), data.get("remark"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        for item in data.get("items", []):
-            conn.execute("INSERT INTO sales_items (so_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?)",
-                (so_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                 item.get("qty"), item.get("unit_price"), item.get("total"), item.get("remarks")))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)})
-
-@app.route("/api/so/<string:so_no>")
-def get_so(so_no):
-    conn = get_db_connection()
-    so = conn.execute("SELECT * FROM sales_orders WHERE so_number = ?", (so_no,)).fetchone()
-    if not so:
-        conn.close()
-        return jsonify({"found": False, "message": "找不到客戶訂單"})
-    items = [dict(r) for r in conn.execute("SELECT model, product_name as name, specification as size, color, quantity as qty, unit_price, subtotal as total, remarks FROM sales_items WHERE so_number = ?", (so_no,)).fetchall()]
-    conn.close()
-    return jsonify({"found": True, "header": dict(so), "items": items})
-
 @app.route("/api/delivery/save", methods=["POST"])
 def save_delivery():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -447,7 +578,6 @@ def save_delivery():
         conn = get_db_connection()
         conn.execute("DELETE FROM delivery_orders WHERE do_number = ?", (do_no,))
         conn.execute("DELETE FROM delivery_items WHERE do_number = ?", (do_no,))
-        
         c_id = data.get("customer_code", "") or ""
         c_name = data.get("customer_name", "") or "未命名客戶"
         driver = data.get("driver", "大蔡")
@@ -456,7 +586,6 @@ def save_delivery():
         conn.execute("INSERT INTO delivery_orders VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (do_no, data.get("shipper_name"), data.get("warehouse", "八里倉"), data.get("so_no"),
              data.get("delivery_date"), c_id, c_name, driver, manual_freight, data.get("grand_total", 0), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        
         total_amt = 0
         for item in data.get("items", []):
             sub = item.get("shipped_qty", 0) * item.get("unit_price", 0)
@@ -465,10 +594,8 @@ def save_delivery():
             conn.execute("INSERT INTO delivery_items (do_number, warehouse, model, product_name, specification, color, shipped_qty, unit_price, subtotal, remarks) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (do_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("shipped_qty"), item.get("unit_price"), sub, item.get("remarks")))
-            
             sku = item.get("model")
             conn.execute("UPDATE inventory_items SET stock = stock - ? WHERE sku = ?", (item.get("shipped_qty"), sku))
-
         c_display = f"{c_id} {c_name}".strip() if c_id else c_name
         conn.execute("INSERT OR REPLACE INTO ar_invoices VALUES (?,?,?,?, '月結30天', ?, '未收')",
             (do_no, data.get("delivery_date"), c_display, total_amt, data.get("delivery_date")))
@@ -489,8 +616,6 @@ def get_delivery(do_no):
     conn.close()
     return jsonify({"found": True, "header": res_data, "items": items})
 
-
-# --- 庫存 CRUD 與進銷存 API ---
 @app.route("/api/inventory/list")
 def get_inventory():
     conn = get_db_connection()
@@ -537,13 +662,10 @@ def save_inventory_transaction():
         sku = data.get("transSku")
         qty = int(data.get("transQty", 0))
         price = float(data.get("transPrice", 0))
-        
         item = conn.execute("SELECT * FROM inventory_items WHERE sku = ?", (sku,)).fetchone()
         if not item: return jsonify({"success": False, "message": "找不到商品"})
-        
         cost = item["cost"]
         current_stock = item["stock"]
-        
         if ttype == "進貨":
             conn.execute("UPDATE inventory_items SET stock = stock + ? WHERE sku = ?", (qty, sku))
             cogs = 0
@@ -559,7 +681,6 @@ def save_inventory_transaction():
             cogs = -(qty * cost)
         else:
             cogs = 0
-
         total_amt = qty * price
         conn.execute("""INSERT INTO inventory_transactions (trans_date, trans_type, order_id, customer_code, customer_name, sku, qty, price, total_amount, cogs, keyin_user, status, note, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '已入帳', ?, ?)""",
@@ -570,7 +691,6 @@ def save_inventory_transaction():
         return jsonify({"success": True, "message": f"【{ttype}】單據登錄成功！結轉 COGS: ${cogs:,.0f}"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-# --- 業務業績 API (支援手動輸入、查詢、修改、刪除) ---
 @app.route("/api/sales/performance")
 def get_sales_performance():
     conn = get_db_connection()
@@ -588,7 +708,6 @@ def save_sales_performance():
         sales_amt = float(data.get("sales_amount", 0))
         rate = float(data.get("commission_rate", 0.05))
         comm_amt = sales_amt * rate
-
         if sp_id:
             conn.execute("""UPDATE sales_performance SET sales_person=?, order_id=?, order_date=?, customer_name=?, sales_amount=?, commission_rate=?, commission_amount=?, status=?, note=? WHERE id=?""",
                          (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
@@ -614,8 +733,6 @@ def delete_sales_performance(sp_id):
         return jsonify({"success": True, "message": "✔ 業務業績紀錄刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-
-# --- 會計傳票 API ---
 @app.route("/api/vouchers/list")
 def get_vouchers():
     conn = get_db_connection()
@@ -635,23 +752,18 @@ def save_voucher():
         conn = get_db_connection()
         v_no = data.get("voucher_no")
         items = data.get("items", [])
-        
         total_dr = sum(float(i.get("debit", 0)) for i in items)
         total_cr = sum(float(i.get("credit", 0)) for i in items)
         if abs(total_dr - total_cr) > 0.01:
             return jsonify({"success": False, "message": f"❌ 借貸不平衡！借方總計 (${total_dr:,.2f}) 與貸方總計 (${total_cr:,.2f}) 不符。"})
-
         conn.execute("DELETE FROM vouchers WHERE voucher_no = ?", (v_no,))
         conn.execute("DELETE FROM voucher_items WHERE voucher_no = ?", (v_no,))
-
         conn.execute("INSERT INTO vouchers VALUES (?, ?, ?, ?, ?, ?, ?)",
                      (v_no, data.get("voucher_date"), data.get("voucher_type"), data.get("summary"),
                       data.get("preparer"), total_dr, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-
         for it in items:
             conn.execute("INSERT INTO voucher_items (voucher_no, account_code, account_name, debit, credit) VALUES (?, ?, ?, ?, ?)",
                          (v_no, it.get("account_code"), it.get("account_name"), float(it.get("debit", 0)), float(it.get("credit", 0))))
-
         conn.commit()
         conn.close()
         return jsonify({"success": True, "message": "✔ 會計傳票存檔成功！"})
@@ -669,25 +781,19 @@ def delete_voucher(v_no):
         return jsonify({"success": True, "message": "✔ 傳票刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-
-# --- 四大財務報表 API ---
 @app.route("/api/finance/reports")
 def get_finance_reports():
     conn = get_db_connection()
-    # 範例計算：試算表與綜合損益表
     v_items = conn.execute("SELECT account_code, account_name, SUM(debit) as dr, SUM(credit) as cr FROM voucher_items GROUP BY account_code").fetchall()
     conn.close()
     return jsonify({"trial_balance": [dict(r) for r in v_items]})
 
-
-# --- 應收 / 應付與其他 API ---
 @app.route("/api/ar/search/<string:order_id>")
 def search_ar_record(order_id):
     conn = get_db_connection()
     rows = conn.execute("SELECT * FROM ar_records WHERE order_id = ? ORDER BY id ASC", (order_id.upper(),)).fetchall()
     conn.close()
     if not rows: return jsonify({"success": False, "message": "查無此訂單收款紀錄"})
-    
     history = []
     total_col = 0
     base = dict(rows[0])
@@ -700,7 +806,6 @@ def search_ar_record(order_id):
             "driver": r["driver"], "driverArea": r["driver_area"], "freight": r["freight"],
             "oldItemFee": r["old_item_fee"], "user": r["keyin_user"], "note": r["note"]
         })
-
     current_unpaid = max(0, base["sales_amount"] - base["deposit"] - total_col)
     return jsonify({
         "success": True,
@@ -723,7 +828,6 @@ def save_ar_record():
         conn = get_db_connection()
         is_edit = data.get("isEditSpecificRow")
         target_id = data.get("targetRowIndex")
-        
         if is_edit and target_id:
             conn.execute("""UPDATE ar_records SET receive_amount=?, pay_type=?, check_no=?, check_due_date=?, receive_date=?, unpaid_amount=?, driver=?, driver_area=?, freight=?, old_item_fee=?, note=? WHERE id=?""",
                          (data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
@@ -747,16 +851,13 @@ def get_print_data():
     end = request.args.get("endDate", "")
     driver = request.args.get("driver", "ALL")
     conn = get_db_connection()
-    
     query = "SELECT * FROM ar_records WHERE receive_date BETWEEN ? AND ?"
     params = [start, end]
     if driver != "ALL":
         query += " AND driver = ?"
         params.append(driver)
-        
     rows = conn.execute(query, params).fetchall()
     conn.close()
-    
     lst = []
     for r in rows:
         lst.append({
@@ -903,51 +1004,72 @@ MAIN_HTML = """
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    :root { --primary: #0f172a; --brand: #c59b27; --border: #94a3b8; --text: #1e293b; }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background-color: #f1f5f9; color: var(--text); padding: 20px 20px 90px 20px; display: flex; justify-content: center; font-size: 13px; }
-    .container { width: 100%; max-width: 1200px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); overflow: hidden; }
-    .nav-tabs { background: #1e293b; padding: 10px 20px; display: flex; gap: 6px; border-bottom: 2px solid var(--brand); justify-content: space-between; align-items: center; flex-wrap: wrap; }
-    .nav-tabs-left { display: flex; gap: 6px; flex-wrap: wrap; }
-    .tab-btn { background: #334155; color: #cbd5e1; border: none; padding: 8px 12px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
-    .tab-btn:hover { background: #475569; color: #fff; }
+    :root { --primary: #0f172a; --brand: #c59b27; --border: #cbd5e1; --text: #1e293b; --bg-main: #f8fafc; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif; }
+    body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
+    .container { width: 100%; max-width: 1260px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
+    
+    .nav-tabs { background: #0f172a; padding: 12px 20px; display: flex; gap: 6px; border-bottom: 3px solid var(--brand); justify-content: space-between; align-items: center; flex-wrap: wrap; }
+    .nav-tabs-left { display: flex; gap: 5px; flex-wrap: wrap; }
+    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 6px 10px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; }
+    .tab-btn:hover { background: #334155; color: #fff; }
     .tab-btn.active { background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(197, 155, 39, 0.4); }
-    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
-    .po-header { background: #0f172a; color: #fff; padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--brand); }
-    .po-title h1 { font-size: 22px; font-weight: 700; } .po-title div { font-size: 12px; color: #cbd5e1; margin-top: 2px; }
-    .po-company-info { text-align: right; font-size: 12px; color: #e2e8f0; line-height: 1.5; }
-    form { padding: 20px 30px 40px 30px; }
-    .section-block { margin-bottom: 14px; }
-    .section-title { font-size: 13.5px; font-weight: 700; color: var(--primary); margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid #cbd5e1; display: flex; align-items: center; gap: 6px; }
-    .section-title::before { content: ""; width: 4px; height: 12px; background: var(--brand); border-radius: 2px; }
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    .form-group { display: flex; flex-direction: column; gap: 2px; }
-    label { font-size: 12px; font-weight: 600; color: #334155; }
+    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
+    .btn-supplier-link:hover { background: #0369a1; color: #fff; }
+
+    .po-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--brand); }
+    .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
+    .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
+    .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.6; }
+    
+    form { padding: 22px 30px 40px 30px; }
+    .section-block { margin-bottom: 16px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .section-title { font-size: 13.5px; font-weight: 700; color: var(--primary); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; display: flex; align-items: center; gap: 6px; }
+    .section-title::before { content: ""; width: 4px; height: 13px; background: var(--brand); border-radius: 2px; }
+    
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 12px; font-weight: 600; color: #475569; }
     .required::after { content: " *"; color: #dc2626; }
-    input, select, textarea { padding: 6px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 4px; background: #fff; color: var(--text); outline: none; width: 100%; }
+    
+    input, select, textarea { padding: 7px 10px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); outline: none; width: 100%; transition: border-color 0.2s, box-shadow 0.2s; }
+    input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(197, 155, 39, 0.15); }
     .readonly { background: #f8fafc; color: #475569; font-weight: 600; }
-    .items-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-    .items-table th { background: #f1f5f9; color: #334155; font-size: 12px; padding: 6px; border: 1px solid var(--border); text-align: left; }
-    .items-table td { padding: 5px 6px; border: 1px solid var(--border); vertical-align: middle; font-size: 12.5px; }
+    
+    .items-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 6px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+    .items-table th { background: #f8fafc; color: #334155; font-size: 12px; padding: 9px 8px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 600; }
+    .items-table td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; vertical-align: middle; font-size: 12.5px; background: #fff; }
+    .items-table tr:last-child td { border-bottom: none; }
+    
     .input-qty { text-align: center; } .input-price { text-align: right; } .input-total { text-align: right; }
     .item-remarks { border: none !important; background: transparent !important; font-size: 11.5px; color: #475569; padding: 2px !important; }
-    .btn-add-item { background: #0f172a; color: #fff; border: none; padding: 5px 10px; font-size: 12px; font-weight: 600; border-radius: 4px; cursor: pointer; }
-    .btn-del-item { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 2px 5px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-    .btn-query { background: #0f172a; color: #fff; border: none; padding: 6px 8px; font-size: 12px; font-weight: 600; border-radius: 4px; cursor: pointer; }
-    .floating-action-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(6px); border-top: 1px solid var(--border); padding: 10px 20px; display: flex; justify-content: center; gap: 8px; z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.1); }
-    .btn-submit { background: linear-gradient(135deg, var(--brand) 0%, #a68120 100%); color: #fff; font-size: 13px; font-weight: 700; border: none; padding: 9px 14px; border-radius: 6px; cursor: pointer; }
-    .btn-print { background: #475569; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
-    .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
-    .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
-    .finance-group { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-    .inventory-group { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-    .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 8px; margin-top: 6px; }
-    .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-    .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-top: 14px; }
-    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+    
+    .btn-add-item { background: #0f172a; color: #fff; border: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .btn-del-item { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 3px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; }
+    .btn-query { background: #0f172a; color: #fff; border: none; padding: 7px 10px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    
+    .floating-action-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-top: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: center; gap: 10px; z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.06); }
+    .btn-submit { background: linear-gradient(135deg, var(--brand) 0%, #a68120 100%); color: #fff; font-size: 13px; font-weight: 700; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(197,155,39,0.3); }
+    .btn-print { background: #475569; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    
+    .finance-group { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+    .inventory-group { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+    .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; margin-top: 8px; }
+    .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-top: 14px; }
+    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    
     .app-view { display: none; } .app-view.active { display: block; }
-    @media print { .nav-tabs, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } body { background-color: #fff; padding: 0; } .container { box-shadow: none; border: none; width: 100%; } form { padding: 10px; } }
+    
+    @media print { 
+      .nav-tabs, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } 
+      body { background-color: #fff; padding: 0; } 
+      .container { box-shadow: none; border: none; width: 100%; max-width: 100%; } 
+      form { padding: 10px; } 
+    }
   </style>
 </head>
 <body>
@@ -962,13 +1084,15 @@ MAIN_HTML = """
       <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存管理</button>
       <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
       <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績</button>
+      <button type="button" class="tab-btn" id="btnTabCreditCard" onclick="switchTab('creditCard')">💳 刷卡/退刷</button>
+      <button type="button" class="tab-btn" id="btnTabInvoice" onclick="switchTab('invoice')">🧾 發票系統</button>
       <button type="button" class="tab-btn" id="btnTabHr" onclick="switchTab('hr')">👥 人事名冊</button>
       <button type="button" class="tab-btn" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統</button>
       <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收</button>
       <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 司機運費對帳</button>
       <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
       <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
-      <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務系統</button>
+      <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務與傳票</button>
     </div>
     <div><a href="{{ url_for('suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-address-book"></i> 供應商管理</a></div>
   </div>
@@ -987,22 +1111,22 @@ MAIN_HTML = """
           <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:4px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">訂購日期</label><input type="date" id="po_order_date" required></div>
         </div>
-        <div class="grid-2" style="margin-top:8px;">
+        <div class="grid-2" style="margin-top:10px;">
           <div class="form-group"><label class="required">交貨日期</label><input type="date" id="po_delivery_date" required></div>
           <div class="form-group"><label class="required">Price Term</label><input type="text" id="po_price_term" required></div>
         </div>
-        <div class="grid-3" style="margin-top:8px; border-top:1px dashed #cbd5e1; padding-top:8px;">
+        <div class="grid-3" style="margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:10px;">
           <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
           <div class="form-group"><label>廠商編號</label><input type="text" id="po_vendor_id" onblur="lookupVendorName('po')"></div>
           <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" required></div>
         </div>
-        <div class="grid-2" style="margin-top:8px;">
+        <div class="grid-2" style="margin-top:10px;">
           <div class="form-group"><label class="required">幣別</label><select id="po_currency" required onchange="calculatePoTotals()"><option value="" disabled selected hidden>請選擇</option><option value="USD">USD</option><option value="NTD">NTD</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="JPY">JPY</option></select></div>
           <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
         </div>
       </div>
       <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細</div>
           <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
         </div>
@@ -1015,14 +1139,14 @@ MAIN_HTML = """
       <div class="section-block">
         <div class="section-title">三、 付款與裝運設定</div>
         <div class="grid-2">
-          <div class="form-group"><label>訂金比例 (%) / 金額</label><div style="display:flex; gap:4px;"><input type="number" id="po_dep_pct" style="width:70px;" oninput="calculatePoTotals()"><input type="text" id="po_dep_amt" class="readonly" readonly style="flex:1;"></div></div>
-          <div class="form-group"><label>尾款比例 (%) / 金額</label><div style="display:flex; gap:4px;"><input type="number" id="po_bal_pct" class="readonly" style="width:70px;" readonly><input type="text" id="po_bal_amt" class="readonly" readonly style="flex:1;"></div></div>
+          <div class="form-group"><label>訂金比例 (%) / 金額</label><div style="display:flex; gap:6px;"><input type="number" id="po_dep_pct" style="width:75px;" oninput="calculatePoTotals()"><input type="text" id="po_dep_amt" class="readonly" readonly style="flex:1;"></div></div>
+          <div class="form-group"><label>尾款比例 (%) / 金額</label><div style="display:flex; gap:6px;"><input type="number" id="po_bal_pct" class="readonly" style="width:75px;" readonly><input type="text" id="po_bal_amt" class="readonly" readonly style="flex:1;"></div></div>
         </div>
-        <div class="grid-2" style="margin-top:8px;">
+        <div class="grid-2" style="margin-top:10px;">
           <div class="form-group"><label>Shipping Mark</label><input type="text" id="po_shipping_mark"></div>
           <div class="form-group"><label>Packing</label><input type="text" id="po_packing"></div>
         </div>
-        <div class="form-group" style="margin-top:8px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
+        <div class="form-group" style="margin-top:10px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
       </div>
     </form>
   </div>
@@ -1041,12 +1165,12 @@ MAIN_HTML = """
           <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:4px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
         </div>
-        <div class="grid-3" style="margin-top:8px;">
+        <div class="grid-3" style="margin-top:10px;">
           <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
           <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
           <div class="form-group"><label>廠商編號</label><div style="display:flex; gap:4px;"><input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
         </div>
-        <div class="grid-2" style="margin-top:8px;"><div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div></div>
+        <div class="grid-2" style="margin-top:10px;"><div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div></div>
       </div>
       <div class="section-block">
         <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
@@ -1059,42 +1183,49 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 3. 客戶訂單系統 -->
+  <!-- 3. 客戶訂單系統 (含訂金與付款方式計算尾款) -->
   <div id="soView" class="app-view">
     <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES ORDER (客戶訂單)</div></div>
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES ORDER (客戶訂單與訂金管理)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
     <form id="soForm" onsubmit="handleSoSubmit(event)">
       <div class="section-block">
-        <div class="section-title">一、 客戶訂單基本資料</div>
+        <div class="section-title">一、 客戶訂單基本資料與訂金設定</div>
         <div class="grid-3">
           <div class="form-group"><label class="required">業務人員</label><input type="text" id="so_sales_person" value="{{ user_name }}" required></div>
           <div class="form-group"><label class="required">訂單編號</label><div style="display:flex; gap:4px;"><input type="text" id="so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="querySoRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">訂單日期</label><input type="date" id="so_order_date" required></div>
         </div>
-        <div class="grid-3" style="margin-top:8px;">
+        <div class="grid-3" style="margin-top:10px;">
           <div class="form-group"><label>客戶編號</label><input type="text" id="so_customer_code" onblur="lookupCustomerName()"></div>
           <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="so_customer_name" required></div>
           <div class="form-group"><label class="required">幣別</label><select id="so_currency" required><option value="NTD" selected>NTD</option><option value="USD">USD</option></select></div>
         </div>
+        <div class="grid-3" style="margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:10px;">
+          <div class="form-group"><label class="required">付款方式 (訂金)</label><select id="so_pay_method" class="form-select form-select-sm"><option value="現金" selected>現金</option><option value="匯款">匯款</option><option value="信用卡">信用卡</option><option value="支票">支票</option></select></div>
+          <div class="form-group"><label class="required">已付訂金 ($)</label><input type="number" id="so_deposit_paid" class="form-control form-control-sm" value="0" step="0.01" oninput="calculateSoTotals()"></div>
+          <div class="form-group"><label class="text-danger fw-bold">剩餘未付尾款 ($)</label><input type="number" id="so_balance_due" class="form-control form-control-sm readonly text-danger fw-bold" value="0" readonly></div>
+        </div>
       </div>
       <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 訂單品項明細</div>
           <button type="button" class="btn-add-item" onclick="addSoItemRow()">＋ 新增品項</button>
         </div>
         <table class="items-table">
           <thead><tr><th style="width:16%;">型號</th><th style="width:20%;">品名</th><th style="width:14%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
           <tbody id="soItemsBody"></tbody>
-          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr></tfoot>
+          <tfoot>
+            <tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr>
+          </tfoot>
         </table>
       </div>
       <div class="section-block"><div class="form-group"><label>備註說明</label><textarea id="so_remark" rows="2"></textarea></div></div>
     </form>
   </div>
 
-  <!-- 4. 銷貨出貨系統 (含送貨司機與自訂運費欄位) -->
+  <!-- 4. 銷貨出貨系統 -->
   <div id="deliveryView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DELIVERY ORDER (銷貨出貨單)</div></div>
@@ -1108,24 +1239,14 @@ MAIN_HTML = """
           <div class="form-group"><label class="required">出貨單號</label><div style="display:flex; gap:4px;"><input type="text" id="do_number" required style="flex:1;"><button type="button" class="btn-query" onclick="queryDeliveryRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">出貨日期</label><input type="date" id="do_date" required></div>
         </div>
-        <div class="grid-3" style="margin-top:8px;">
+        <div class="grid-3" style="margin-top:10px;">
           <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:4px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入SO</button></div></div>
           <div class="form-group"><label>客戶編號</label><input type="text" id="do_customer_code"></div>
           <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="do_customer_name" class="readonly" readonly required></div>
         </div>
-        <div class="grid-2" style="margin-top:8px;">
-          <div class="form-group">
-            <label class="required">送貨司機 / 倉別</label>
-            <select id="do_driver" class="form-select form-select-sm" required>
-              <option value="大蔡" selected>大蔡</option>
-              <option value="大生">大生</option>
-              <option value="南倉">南倉</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="required">運費金額 ($)</label>
-            <input type="number" id="do_manual_freight" class="form-control form-control-sm" value="0" min="0" required>
-          </div>
+        <div class="grid-2" style="margin-top:10px;">
+          <div class="form-group"><label class="required">送貨司機 / 倉別</label><select id="do_driver" class="form-select form-select-sm" required><option value="大蔡" selected>大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option></select></div>
+          <div class="form-group"><label class="required">運費金額 ($)</label><input type="number" id="do_manual_freight" class="form-control form-control-sm" value="0" min="0" required></div>
         </div>
       </div>
       <div class="section-block">
@@ -1145,10 +1266,10 @@ MAIN_HTML = """
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY MANAGEMENT (庫存主檔與維護)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
         <h6 class="fw-bold text-primary mb-2">📦 商品建檔與維護（新增或修改）</h6>
-        <form id="inventoryForm" onsubmit="handleInventorySave(event)">
+        <form id="inventoryForm" onsubmit="handleInventorySave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">商品型號 (SKU) *</label><input type="text" id="invSku" class="form-control form-control-sm" placeholder="例: P001" required></div>
             <div class="col-3"><label class="form-label">商品名稱 *</label><input type="text" id="invName" class="form-control form-control-sm" placeholder="商品名稱" required></div>
@@ -1170,7 +1291,7 @@ MAIN_HTML = """
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="fw-bold text-dark mb-0">📊 現有商品與庫存清單</h6>
         <div class="d-flex gap-2">
-          <input type="text" id="invSearchBox" class="form-control form-control-sm" placeholder="搜尋型號或名稱..." oninput="filterInventory()">
+          <input type="text" id="invSearchBox" class="form-control form-control-sm" placeholder="搜尋型號或名稱..." oninput="filterInventory()" style="width:200px;">
           <button type="button" class="btn-query btn-sm" onclick="loadInventory()">🔄 重新整理</button>
         </div>
       </div>
@@ -1187,19 +1308,11 @@ MAIN_HTML = """
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY TRANSACTION (進退/銷退單據)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <form id="transForm" onsubmit="event.preventDefault(); submitTransaction();" style="padding:20px 30px;">
+    <form id="transForm" onsubmit="event.preventDefault(); submitTransaction();">
       <div class="inventory-group">
         <span class="fw-bold text-success d-block mb-2">📑 建立進銷存交易單據 (含訂單編號與客戶資訊)：</span>
         <div class="row g-2 mb-2">
-          <div class="col-6">
-            <label class="form-label">單據類型 *</label>
-            <select id="transType" class="form-select form-select-sm fw-bold text-primary">
-              <option value="銷貨" selected>📦 銷貨 (自動扣庫存 & 結轉銷貨成本)</option>
-              <option value="進貨">📥 進貨 (增加庫存)</option>
-              <option value="銷貨退回">↩️ 銷貨退回 (商品加回庫存)</option>
-              <option value="進貨退回">🔙 進貨退回 (減少庫存)</option>
-            </select>
-          </div>
+          <div class="col-6"><label class="form-label">單據類型 *</label><select id="transType" class="form-select form-select-sm fw-bold text-primary"><option value="銷貨" selected>📦 銷貨 (自動扣庫存 & 結轉銷貨成本)</option><option value="進貨">📥 進貨 (增加庫存)</option><option value="銷貨退回">↩️ 銷貨退回</option><option value="進貨退回">🔙 進貨退回</option></select></div>
           <div class="col-6"><label class="form-label">單據日期 *</label><input type="date" id="transDate" class="form-control form-control-sm" required></div>
         </div>
         <div class="row g-2 mb-2">
@@ -1221,16 +1334,16 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 7. 業務業績統計系統 (支援輸入、查詢、區間列印) -->
+  <!-- 7. 業務業績統計系統 -->
   <div id="salesPerfView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>SALES PERFORMANCE (業務人員業績與獎金統計)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border no-print">
         <h6 class="fw-bold text-primary mb-2">🏆 手動登錄或維護業務業績</h6>
-        <form id="salesPerfForm" onsubmit="handleSalesPerfSave(event)">
+        <form id="salesPerfForm" onsubmit="handleSalesPerfSave(event)" style="padding:0;">
           <input type="hidden" id="perfRecordId">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">業務人員 *</label><input type="text" id="perfSalesPerson" class="form-control form-control-sm" placeholder="業務姓名" required></div>
@@ -1268,16 +1381,93 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 8. 新進人員/人事名冊管理系統 (HR) -->
+  <!-- 8. 信用卡刷卡與退刷管理系統 -->
+  <div id="creditCardView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>CREDIT CARD TRANSACTIONS (信用卡刷卡與退刷管理)</div></div>
+      <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
+    </div>
+    <div style="padding:22px 30px;">
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">💳 登錄刷卡收入或退刷 (退款)</h6>
+        <form id="ccForm" onsubmit="handleCcSave(event)" style="padding:0;">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">交易類型 *</label><select id="ccType" class="form-select form-select-sm fw-bold text-primary"><option value="刷卡收入" selected>💳 刷卡收入 (收款)</option><option value="信用卡退刷">↩️ 信用卡退刷 (退款)</option></select></div>
+            <div class="col-3"><label class="form-label">訂單編號</label><input type="text" id="ccOrderId" class="form-control form-control-sm" placeholder="訂單編號"></div>
+            <div class="col-3"><label class="form-label">客戶名稱 *</label><input type="text" id="ccCustomer" class="form-control form-control-sm" placeholder="客戶名稱" required></div>
+            <div class="col-3"><label class="form-label">交易金額 ($) *</label><input type="number" id="ccAmount" class="form-control form-control-sm fw-bold" value="0" step="0.01" required></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">授權碼 (Auth Code)</label><input type="text" id="ccAuthCode" class="form-control form-control-sm" placeholder="授權碼"></div>
+            <div class="col-3"><label class="form-label">卡號末4碼</label><input type="text" id="ccLast4" class="form-control form-control-sm" placeholder="例如: 8888" maxlength="4"></div>
+            <div class="col-3"><label class="form-label">交易日期 *</label><input type="date" id="ccDate" class="form-control form-control-sm" required></div>
+            <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存刷卡紀錄</button></div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📜 信用卡刷卡與退刷流水帳</h6>
+        <button class="btn-query btn-sm" onclick="loadCreditCardTxns()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>交易日期</th><th>類型</th><th>訂單編號</th><th>客戶名稱</th><th>授權碼</th><th>卡號末4碼</th><th>金額</th><th>備註</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="ccTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 9. 發票系統 -->
+  <div id="invoiceView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVOICE SYSTEM (發票開立與管理)</div></div>
+      <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
+    </div>
+    <div style="padding:22px 30px;">
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">🧾 發票開立與維護（二聯式 / 三聯式）</h6>
+        <form id="invoiceForm" onsubmit="handleInvoiceSave(event)" style="padding:0;">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">發票號碼 *</label><input type="text" id="invNo" class="form-control form-control-sm" placeholder="例: AB12345678" required></div>
+            <div class="col-3"><label class="form-label">發票日期 *</label><input type="date" id="invDate" class="form-control form-control-sm" required></div>
+            <div class="col-3"><label class="form-label">發票類型 *</label><select id="invType" class="form-select form-select-sm"><option value="二聯式" selected>二聯式</option><option value="三聯式">三聯式</option></select></div>
+            <div class="col-3"><label class="form-label">客戶抬頭 *</label><input type="text" id="invCust" class="form-control form-control-sm" placeholder="客戶名稱/抬頭" required></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">統一編號 (三聯)</label><input type="text" id="invTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
+            <div class="col-3"><label class="form-label">銷售未稅金額 ($) *</label><input type="number" id="invSalesAmt" class="form-control form-control-sm" value="0" step="0.01" oninput="calcInvTax()" required></div>
+            <div class="col-3"><label class="form-label">營業稅額 (5%) ($)</label><input type="number" id="invTaxAmt" class="form-control form-control-sm" value="0" step="0.01"></div>
+            <div class="col-3"><label class="form-label text-success fw-bold">發票總計 ($)</label><input type="number" id="invTotalAmt" class="form-control form-control-sm readonly text-success fw-bold" readonly></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">狀態</label><select id="invStatus" class="form-select form-select-sm"><option value="正常" selected>正常</option><option value="作廢">作廢</option><option value="折讓">折讓</option></select></div>
+            <div class="col-6"><label class="form-label">備註</label><input type="text" id="invNote" class="form-control form-control-sm" placeholder="備註..."></div>
+            <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存發票</button></div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📜 已開立發票清單</h6>
+        <button class="btn-query btn-sm" onclick="loadInvoices()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>發票號碼</th><th>日期</th><th>類型</th><th>客戶抬頭</th><th>統編</th><th>未稅金額</th><th>稅額</th><th>總計</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="invoiceTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 10. 人事名冊 (HR) -->
   <div id="hrView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>HR MANAGEMENT (員工與新進人員名冊)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
         <h6 class="fw-bold text-primary mb-2">👤 員工建檔與維護（新增或修改）</h6>
-        <form id="hrForm" onsubmit="handleEmpSave(event)">
+        <form id="hrForm" onsubmit="handleEmpSave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">員工編號 *</label><input type="text" id="empId" class="form-control form-control-sm" placeholder="例: EMP03" required></div>
             <div class="col-3"><label class="form-label">員工姓名 *</label><input type="text" id="empName" class="form-control form-control-sm" placeholder="姓名" required></div>
@@ -1308,16 +1498,16 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 9. 薪資發放系統 (Payroll) -->
+  <!-- 11. 薪資發放系統 (Payroll) -->
   <div id="payrollView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>PAYROLL SYSTEM (員工薪資與發放管理)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
         <h6 class="fw-bold text-primary mb-2">💵 薪資登錄與發放維護</h6>
-        <form id="payrollForm" onsubmit="handlePayrollSave(event)">
+        <form id="payrollForm" onsubmit="handlePayrollSave(event)" style="padding:0;">
           <input type="hidden" id="payrollRecordId">
           <div class="row g-2">
             <div class="col-4">
@@ -1367,13 +1557,13 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 10. 專業應收帳款管理 (AR Pro) -->
+  <!-- 12. 專業應收帳款管理 (AR Pro) -->
   <div id="arProView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="input-group input-group-sm mb-3">
         <input type="text" id="arSearchId" class="form-control" placeholder="輸入訂單編號查歷史明細或新增再次收款（如 4110213）">
         <button class="btn btn-outline-primary fw-bold" type="button" onclick="searchAR()">🔍 查詢單據歷史</button>
@@ -1456,13 +1646,13 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 11. 司機運費對帳系統 (原出納對帳單) -->
+  <!-- 13. 司機運費對帳系統 -->
   <div id="printCenterView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER FREIGHT RECONCILIATION (司機運費對帳系統)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 no-print">
         <div class="d-flex align-items-center gap-2 flex-wrap">
           <select id="printDriverFilter" class="form-select form-select-sm" style="width: 150px;">
@@ -1483,13 +1673,13 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 12. 應付帳款系統 (支援單家廠商、月份、區間查詢與列印) -->
+  <!-- 14. 應付帳款系統 -->
   <div id="apView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款管理)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
         <div class="grid-3" style="align-items:end;">
           <div class="form-group"><label>依單家廠商名稱或代號篩選</label><input type="text" id="ap_filter_vendor" class="form-control form-control-sm" placeholder="輸入廠商名稱/代號..." oninput="loadAP()"></div>
@@ -1508,13 +1698,13 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 13. 應收帳款系統 (支援單家客戶、月份、區間查詢與列印) -->
+  <!-- 15. 應收帳款系統 -->
   <div id="arView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款管理)</div></div>
       <div class="po-company-info"><div>統一編號：83390454</div><div>地址：新北市土城區中央路3段130-6號</div><div>電話：02-22691071</div></div>
     </div>
-    <div style="padding:20px 30px;">
+    <div style="padding:22px 30px;">
       <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
         <div class="grid-3" style="align-items:end;">
           <div class="form-group"><label>依單家客戶名稱或代號篩選</label><input type="text" id="ar_filter_customer" class="form-control form-control-sm" placeholder="輸入客戶名稱/代號..." oninput="loadAR()"></div>
@@ -1533,7 +1723,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 14. 財務系統 (含傳票與4大財務報表) -->
+  <!-- 16. 財務系統 -->
   <div id="financeView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD & VOUCHERS (會計傳票與四大財務報表)</div></div>
@@ -1542,7 +1732,7 @@ MAIN_HTML = """
     <div style="padding:25px 30px;">
       <div class="card p-3 mb-4 bg-light border no-print">
         <h6 class="fw-bold text-primary mb-2">📑 會計傳票登錄（應收票據、應付票據、現金/銀行收支傳票）</h6>
-        <form id="voucherForm" onsubmit="handleVoucherSave(event)">
+        <form id="voucherForm" onsubmit="handleVoucherSave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">傳票編號 *</label><input type="text" id="vNo" class="form-control form-control-sm" placeholder="例: V20260901" required></div>
             <div class="col-3"><label class="form-label">傳票日期 *</label><input type="date" id="vDate" class="form-control form-control-sm" required></div>
@@ -1656,7 +1846,7 @@ MAIN_HTML = """
   let arEditTargetRow = 0;
 
   window.addEventListener('DOMContentLoaded', () => {
-    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'transDate', 'empHireDate', 'payDate', 'perfOrderDate', 'vDate'].forEach(id => {
+    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'transDate', 'empHireDate', 'payDate', 'perfOrderDate', 'ccDate', 'invDate', 'vDate'].forEach(id => {
       const el = document.getElementById(id); if (el) el.valueAsDate = new Date();
     });
     const mEl = document.getElementById('in_month'); if (mEl) mEl.value = new Date().toISOString().slice(0, 7);
@@ -1664,7 +1854,7 @@ MAIN_HTML = """
 
     const today = new Date();
     const firstDayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-01";
-    const todayStr = today.toISOString().split("T")[0];
+    const todayStr = today.toISOString().slice(0, 10);
     const pStart = document.getElementById('printStartDate'); if (pStart) pStart.value = firstDayStr;
     const pEnd = document.getElementById('printEndDate'); if (pEnd) pEnd.value = todayStr;
 
@@ -1674,6 +1864,8 @@ MAIN_HTML = """
     loadEmployees();
     loadPayroll();
     loadSalesPerformance();
+    loadCreditCardTxns();
+    loadInvoices();
     loadVouchers();
     updateDriverLogic();
     toggleARCheckFields();
@@ -1681,7 +1873,7 @@ MAIN_HTML = """
 
   function switchTab(tab) {
     currentTab = tab;
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'trans', 'salesPerf', 'hr', 'payroll', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
@@ -1690,6 +1882,8 @@ MAIN_HTML = """
     if (tab === 'inventory') loadInventory();
     else if (tab === 'trans') prepareTransForm();
     else if (tab === 'salesPerf') loadSalesPerformance();
+    else if (tab === 'creditCard') loadCreditCardTxns();
+    else if (tab === 'invoice') loadInvoices();
     else if (tab === 'hr') loadEmployees();
     else if (tab === 'payroll') loadPayroll();
     else if (tab === 'ap') loadAP();
@@ -1724,6 +1918,8 @@ MAIN_HTML = """
     else if (currentTab === 'arPro') document.getElementById('arForm').requestSubmit();
     else if (currentTab === 'inventory') document.getElementById('inventoryForm').requestSubmit();
     else if (currentTab === 'salesPerf') document.getElementById('salesPerfForm').requestSubmit();
+    else if (currentTab === 'creditCard') document.getElementById('ccForm').requestSubmit();
+    else if (currentTab === 'invoice') document.getElementById('invoiceForm').requestSubmit();
     else if (currentTab === 'hr') document.getElementById('hrForm').requestSubmit();
     else if (currentTab === 'payroll') document.getElementById('payrollForm').requestSubmit();
     else if (currentTab === 'finance') document.getElementById('voucherForm').requestSubmit();
@@ -1900,7 +2096,7 @@ MAIN_HTML = """
     });
   }
 
-  // 客戶訂單
+  // 客戶訂單 (含訂金與付款方式計算尾款)
   function addSoItemRow() {
     const tbody = document.getElementById('soItemsBody');
     const tr = document.createElement('tr');
@@ -1920,6 +2116,10 @@ MAIN_HTML = """
       const t = q * p; row.querySelector('.so-total').value = t ? t.toLocaleString('zh-TW', {minimumFractionDigits:2}) : ''; gt += t;
     });
     document.getElementById('soGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
+    
+    const deposit = parseFloat(document.getElementById('so_deposit_paid').value) || 0;
+    const balance = Math.max(0, gt - deposit);
+    document.getElementById('so_balance_due').value = balance.toLocaleString('zh-TW', {minimumFractionDigits:2});
   }
 
   function handleSoSubmit(e) {
@@ -1935,14 +2135,16 @@ MAIN_HTML = """
         qty: q, unit_price: p, total: t, remarks: r.nextElementSibling.querySelector('.item-remarks').value
       });
     });
+    const deposit = parseFloat(document.getElementById('so_deposit_paid').value) || 0;
     const payload = {
       sales_person: document.getElementById('so_sales_person').value, so_no: document.getElementById('so_no').value,
       order_date: document.getElementById('so_order_date').value, customer_code: document.getElementById('so_customer_code').value,
       customer_name: document.getElementById('so_customer_name').value, currency: document.getElementById('so_currency').value,
-      grand_total: gt, remark: document.getElementById('so_remark').value, items: items
+      grand_total: gt, deposit_paid: deposit, pay_method: document.getElementById('so_pay_method').value,
+      remark: document.getElementById('so_remark').value, items: items
     };
     fetch('/api/so/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 客戶訂單儲存成功！' : '✖ 失敗'));
+      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 客戶訂單與訂金紀錄儲存成功！' : '✖ 失敗'));
   }
 
   function querySoRecord() {
@@ -1956,6 +2158,8 @@ MAIN_HTML = """
         document.getElementById('so_customer_code').value = h.customer_code;
         document.getElementById('so_customer_name').value = h.customer_name;
         document.getElementById('so_currency').value = h.currency;
+        document.getElementById('so_pay_method').value = h.pay_method || '現金';
+        document.getElementById('so_deposit_paid').value = h.deposit_paid || 0;
         document.getElementById('so_remark').value = h.remark;
         const tbody = document.getElementById('soItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
@@ -1967,7 +2171,7 @@ MAIN_HTML = """
     });
   }
 
-  // 銷貨出貨 (含司機與自訂運費)
+  // 銷貨出貨
   function importFromSo() {
     const soNo = document.getElementById('do_so_no').value.trim();
     if (!soNo) return alert("請輸入客戶訂單編號 (SO)");
@@ -2015,7 +2219,7 @@ MAIN_HTML = """
       grand_total: parseFloat(document.getElementById('doGrandTotalText').innerText.replace(/,/g,''))||0, items: items
     };
     fetch('/api/delivery/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 銷貨出貨單儲存成功並已記錄司機與運費！' : '✖ 失敗'));
+      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 銷貨出貨單儲存成功！' : '✖ 失敗'));
   }
 
   function queryDeliveryRecord() {
@@ -2152,11 +2356,11 @@ MAIN_HTML = """
     fetch('/api/inventory/transaction/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json()).then(res => {
         alert(res.message);
-        if (res.success) { document.getElementById('transForm').reset(); document.getElementById('transDate').value = new Date().toISOString().split("T")[0]; loadInventory(); }
+        if (res.success) { document.getElementById('transForm').reset(); document.getElementById('transDate').value = new Date().toISOString().slice(0, 10); loadInventory(); }
       });
   }
 
-  // 業務業績 (支援輸入、修改、刪除、查詢區間列印)
+  // 業務業績
   function loadSalesPerformance() {
     const pPerson = document.getElementById('perfFilterPerson').value.trim().toLowerCase();
     const pStart = document.getElementById('perfFilterStart').value;
@@ -2239,7 +2443,115 @@ MAIN_HTML = """
     document.getElementById('perfSubmitBtn').innerText = "💾 儲存業績";
   }
 
-  // 人事名冊 (HR CRUD)
+  // 信用卡刷卡與退刷管理
+  function loadCreditCardTxns() {
+    fetch('/api/creditcard/list').then(r => r.json()).then(data => {
+      const tb = document.getElementById('ccTableBody'); tb.innerHTML = '';
+      if (!data.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">尚無信用卡交易紀錄</td></tr>`; return; }
+      data.forEach(c => {
+        const isRefund = c.txn_type === '信用卡退刷';
+        tb.innerHTML += `<tr>
+          <td><strong>${c.txn_date}</strong></td>
+          <td><span class="badge ${isRefund?'bg-danger':'bg-success'}">${c.txn_type}</span></td>
+          <td>${c.order_id||'-'}</td>
+          <td>${c.customer_name}</td>
+          <td>${c.auth_code||'-'}</td>
+          <td>${c.card_last4||'****'}</td>
+          <td class="text-end fw-bold ${isRefund?'text-danger':'text-success'}">$${c.amount.toLocaleString()}</td>
+          <td>${c.note||'-'}</td>
+          <td class="text-center no-print"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteCcTxn(${c.txn_id})">🗑️ 刪除</button></td>
+        </tr>`;
+      });
+    });
+  }
+
+  function handleCcSave(e) {
+    e.preventDefault();
+    const payload = {
+      txn_type: document.getElementById('ccType').value,
+      order_id: document.getElementById('ccOrderId').value.trim(),
+      customer_name: document.getElementById('ccCustomer').value.trim(),
+      amount: parseFloat(document.getElementById('ccAmount').value) || 0,
+      auth_code: document.getElementById('ccAuthCode').value.trim(),
+      card_last4: document.getElementById('ccLast4').value.trim(),
+      txn_date: document.getElementById('ccDate').value,
+      note: ''
+    };
+    fetch('/api/creditcard/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { document.getElementById('ccForm').reset(); document.getElementById('ccDate').valueAsDate = new Date(); loadCreditCardTxns(); }
+      });
+  }
+
+  function deleteCcTxn(id) {
+    if (confirm("確定要刪除這筆信用卡紀錄嗎？")) {
+      fetch(`/api/creditcard/delete/${id}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadCreditCardTxns();
+      });
+    }
+  }
+
+  // 發票系統
+  function calcInvTax() {
+    const amt = parseFloat(document.getElementById('invSalesAmt').value) || 0;
+    const tax = Math.round(amt * 0.05);
+    document.getElementById('invTaxAmt').value = tax;
+    document.getElementById('invTotalAmt').value = (amt + tax).toFixed(2);
+  }
+
+  function loadInvoices() {
+    fetch('/api/invoices/list').then(r => r.json()).then(data => {
+      const tb = document.getElementById('invoiceTableBody'); tb.innerHTML = '';
+      if (!data.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">尚無發票開立紀錄</td></tr>`; return; }
+      data.forEach(i => {
+        tb.innerHTML += `<tr>
+          <td><strong>${i.invoice_no}</strong></td>
+          <td>${i.invoice_date}</td>
+          <td>${i.invoice_type}</td>
+          <td>${i.customer_name}</td>
+          <td>${i.tax_id||'-'}</td>
+          <td class="text-end">$${i.sales_amount.toLocaleString()}</td>
+          <td class="text-end">$${i.tax_amount.toLocaleString()}</td>
+          <td class="text-end fw-bold text-success">$${i.total_amount.toLocaleString()}</td>
+          <td class="text-center"><span class="badge ${i.status==='正常'?'bg-success':'bg-danger'}">${i.status}</span></td>
+          <td class="text-center no-print"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteInvoice('${i.invoice_no}')">🗑️ 刪除</button></td>
+        </tr>`;
+      });
+    });
+  }
+
+  function handleInvoiceSave(e) {
+    e.preventDefault();
+    const payload = {
+      invoice_no: document.getElementById('invNo').value.trim(),
+      invoice_date: document.getElementById('invDate').value,
+      invoice_type: document.getElementById('invType').value,
+      customer_name: document.getElementById('invCust').value.trim(),
+      tax_id: document.getElementById('invTaxId').value.trim(),
+      sales_amount: parseFloat(document.getElementById('invSalesAmt').value) || 0,
+      tax_amount: parseFloat(document.getElementById('invTaxAmt').value) || 0,
+      status: document.getElementById('invStatus').value,
+      note: document.getElementById('invNote').value.trim()
+    };
+    fetch('/api/invoices/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { document.getElementById('invoiceForm').reset(); document.getElementById('invDate').valueAsDate = new Date(); loadInvoices(); }
+      });
+  }
+
+  function deleteInvoice(no) {
+    if (confirm(`確定要刪除發票【${no}】嗎？`)) {
+      fetch(`/api/invoices/delete/${no}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadInvoices();
+      });
+    }
+  }
+
+  // 人事名冊
   function loadEmployees() {
     fetch('/api/employees/list').then(r => r.json()).then(data => {
       cachedEmployees = data || [];
@@ -2342,7 +2654,6 @@ MAIN_HTML = """
     const leaveDed = parseFloat(document.getElementById('payLeaveDed').value) || 0;
     const purDed = parseFloat(document.getElementById('payPurDed').value) || 0;
     const insDed = parseFloat(document.getElementById('payInsDed').value) || 0;
-    
     const net = base + allow + ot - leaveDed - purDed - insDed;
     document.getElementById('payNet').value = net.toFixed(2);
   }
@@ -2352,11 +2663,9 @@ MAIN_HTML = """
     const empId = document.getElementById('payEmpId').value;
     const emp = cachedEmployees.find(x => x.emp_id === empId);
     if (!emp) return alert("請先選擇員工！");
-
     const payload = {
       payroll_id: document.getElementById('payrollRecordId').value || null,
-      emp_id: empId,
-      emp_name: emp.emp_name,
+      emp_id: empId, emp_name: emp.emp_name,
       pay_month: document.getElementById('payMonth').value,
       base_salary: parseFloat(document.getElementById('payBase').value) || 0,
       allowance: parseFloat(document.getElementById('payAllowance').value) || 0,
@@ -2364,8 +2673,7 @@ MAIN_HTML = """
       leave_deduction: parseFloat(document.getElementById('payLeaveDed').value) || 0,
       emp_purchase_deduction: parseFloat(document.getElementById('payPurDed').value) || 0,
       insurance_deduction: parseFloat(document.getElementById('payInsDed').value) || 0,
-      pay_date: document.getElementById('payDate').value,
-      status: '已發放',
+      pay_date: document.getElementById('payDate').value, status: '已發放',
       note: document.getElementById('payNote').value.trim()
     };
     fetch('/api/payroll/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
@@ -2407,9 +2715,7 @@ MAIN_HTML = """
       if (!data.length) { tb.innerHTML = `<tr><td colspan="12" class="text-center py-3 text-muted">尚無薪資發放紀錄</td></tr>`; return; }
       data.forEach(p => {
         tb.innerHTML += `<tr>
-          <td><strong>${p.pay_month}</strong></td>
-          <td>${p.emp_id}</td>
-          <td>${p.emp_name}</td>
+          <td><strong>${p.pay_month}</strong></td><td>${p.emp_id}</td><td>${p.emp_name}</td>
           <td class="text-end">$${p.base_salary.toLocaleString()}</td>
           <td class="text-end text-success">+$${p.allowance.toLocaleString()}</td>
           <td class="text-end text-success">+$${p.overtime_pay.toLocaleString()}</td>
@@ -2581,7 +2887,7 @@ MAIN_HTML = """
       });
   }
 
-  // 司機運費對帳系統 (原出納對帳單)
+  // 司機運費對帳系統
   function loadPrintData() {
     const start = document.getElementById("printStartDate").value;
     const end = document.getElementById("printEndDate").value;
@@ -2717,7 +3023,7 @@ MAIN_HTML = """
       });
     });
 
-    if (Math.abs(dr - cr) > 0.01) return alert(`⚠️ 借貸不平衡！借方總計 ($${dr.toFixed(2)}) 與貸方總計 ($${cr.toFixed(2)}) 不符。`);
+    if (Math.abs(dr - cr) > 0.01) return alert(`⚠️ 借貸不平衡！借方總計 (${dr.toFixed(2)}) 與貸方總計 (${cr.toFixed(2)}) 不符。`);
 
     const payload = {
       voucher_no: document.getElementById('vNo').value.trim(),
@@ -2760,7 +3066,6 @@ MAIN_HTML = """
       let html = '<h6 class="fw-bold text-success mb-2">⚖️ 會計科目試算表餘額：</h6><ul class="list-unstyled mb-0" style="font-size:12px;">';
       if (!res.trial_balance.length) { html += '<li class="text-muted">尚無分錄資料</li>'; }
       res.trial_balance.forEach(tb => {
-        let diff = tb.dr - tb.cr;
         html += `<li class="d-flex justify-content-between border-bottom py-1"><span>【${tb.account_code}】${tb.account_name}</span><strong>借:${tb.dr.toLocaleString()} / 貸:${tb.cr.toLocaleString()}</strong></li>`;
       });
       html += '</ul>';
