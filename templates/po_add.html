@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>建立採購單 - 珮藏居採購系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card { border: none; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .form-label { font-size: 0.85rem; font-weight: 600; color: #495057; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-shop me-2"></i>珮藏居採購系統</a>
+            <a href="/purchase-orders" class="btn btn-outline-light btn-sm px-3"><i class="bi bi-arrow-left me-1"></i> 返回列表</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4 mb-5">
+        <div class="card p-4 p-md-5">
+            <h3 class="fw-bold mb-4"><i class="bi bi-file-earmark-plus text-primary me-2"></i>建立新採購單</h3>
+            <form method="POST">
+                <h5 class="text-secondary mb-3 fs-6 fw-bold border-bottom pb-2">1. 基本資訊與單頭</h5>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">採購編號</label>
+                        <input type="text" name="po_number" class="form-control" value="{{ default_po_no }}" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">訂購日期</label>
+                        <input type="date" name="order_date" class="form-control" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">交貨日期</label>
+                        <input type="date" name="delivery_date" class="form-control">
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <label class="form-label">供應商</label>
+                        <select name="supplier_code" class="form-select" required>
+                            <option value="">請選擇供應商</option>
+                            {% for s in suppliers %}
+                            <option value="{{ s.supplier_code }}">{{ s.supplier_code }} - {{ s.supplier_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">幣別 (Currency)</label>
+                        <input type="text" name="currency" class="form-control" value="NTD" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Price Term</label>
+                        <input type="text" name="price_term" class="form-control" placeholder="例如: FOB / 國內">
+                    </div>
+                </div>
+
+                <h5 class="text-secondary mb-3 fs-6 fw-bold border-bottom pb-2">2. 採購品項明細</h5>
+                <div class="table-responsive mb-3">
+                    <table class="table table-bordered align-middle" id="items-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 18%;">產品型號</th>
+                                <th style="width: 20%;">產品名稱</th>
+                                <th style="width: 15%;">規格尺寸</th>
+                                <th style="width: 12%;">顏色</th>
+                                <th style="width: 10%;">數量</th>
+                                <th style="width: 15%;">單價</th>
+                                <th style="width: 10%;" class="text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" name="model[]" class="form-control form-control-sm" required></td>
+                                <td><input type="text" name="product_name[]" class="form-control form-control-sm"></td>
+                                <td><input type="text" name="specification[]" class="form-control form-control-sm"></td>
+                                <td><input type="text" name="color[]" class="form-control form-control-sm"></td>
+                                <td><input type="number" name="quantity[]" class="form-control form-control-sm qty" value="1" min="1" required></td>
+                                <td><input type="number" step="0.01" name="unit_price[]" class="form-control form-control-sm price" value="0" required></td>
+                                <td class="text-center"><button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRow(this)"><i class="bi bi-trash"></i></button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm mb-4 px-3" onclick="addRow()"><i class="bi bi-plus-circle me-1"></i> 增加一筆品項</button>
+
+                <h5 class="text-secondary mb-3 fs-6 fw-bold border-bottom pb-2">3. 付款條件與物流備註</h5>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">訂金比例 (%)</label>
+                        <input type="number" step="0.1" name="deposit_pct" class="form-control" value="30">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Shipping Mark (嘜頭)</label>
+                        <input type="text" name="shipping_mark" class="form-control">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Packing (包裝)</label>
+                        <input type="text" name="packing" class="form-control">
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">銀行資訊 (Bank Information)</label>
+                        <input type="text" name="bank_info" class="form-control">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">備註 (Remark)</label>
+                        <input type="text" name="remark" class="form-control">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-dark w-100 py-2.5 fw-bold shadow-sm">儲存並建立採購單</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function addRow() {
+        let table = document.getElementById("items-table").getElementsByTagName('tbody')[0];
+        let newRow = table.insertRow();
+        newRow.innerHTML = `
+            <td><input type="text" name="model[]" class="form-control form-control-sm" required></td>
+            <td><input type="text" name="product_name[]" class="form-control form-control-sm"></td>
+            <td><input type="text" name="specification[]" class="form-control form-control-sm"></td>
+            <td><input type="text" name="color[]" class="form-control form-control-sm"></td>
+            <td><input type="number" name="quantity[]" class="form-control form-control-sm qty" value="1" min="1" required></td>
+            <td><input type="number" step="0.01" name="unit_price[]" class="form-control form-control-sm price" value="0" required></td>
+            <td class="text-center"><button type="button" class="btn btn-outline-danger btn-sm" onclick="removeRow(this)"><i class="bi bi-trash"></i></button></td>
+        `;
+    }
+    function removeRow(btn) {
+        let row = btn.closest('tr');
+        if (document.querySelectorAll('#items-table tbody tr').length > 1) {
+            row.remove();
+        } else {
+            alert("至少需保留一筆採購品項！");
+        }
+    }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+@app.route("/suppliers/delete/<supplier_code>", methods=["POST"])
+def delete_supplier(supplier_code):
+  if "user_id" not in session:
+    return redirect(url_for("login"))
+
+  try:
+    conn = get_db_connection()
+    conn.execute(
+        "DELETE FROM suppliers WHERE supplier_code = ?", (supplier_code,)
+    )
+    conn.commit()
+    conn.close()
+    flash("供應商已成功刪除！", "success")
+  except sqlite3.Error as e:
+    flash(f"刪除失敗：{e}", "danger")
+
+  return redirect(url_for("suppliers"))
