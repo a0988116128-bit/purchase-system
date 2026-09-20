@@ -180,10 +180,19 @@ def init_db():
             )
         """)
 
-        cursor.execute("SELECT COUNT(*) FROM users")
-        if cursor.fetchone()["count"] == 0:
-            cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (%s, %s, %s, %s)",
-                [("EMP01", "黃詠甯", "Erin0320", "會計主管"), ("EMP02", "江婉秀", "0501", "會計人員"), ("admin", "系統管理員", "pezang888", "系統管理")])
+       # 自動建立或補足預設與新進人員帳號
+        default_users = [
+            ("EMP01", "黃詠甯", "0320", "會計主管"),
+            ("EMP02", "江婉秀", "0510", "會計人員"),
+            ("admin", "系統管理員", "pezang888", "系統管理"),
+            ("EMP03", "新進同仁姓名", "你的密碼", "職稱角色")  # <--- 只要在這裡照格式加一行即可！
+        ]
+        for u in default_users:
+            cursor.execute("""
+                INSERT INTO users (id, name, password, role) 
+                VALUES (%s, %s, %s, %s) 
+                ON CONFLICT (id) DO NOTHING
+            """, u)
 
         cursor.execute("SELECT COUNT(*) FROM warehouses")
         if cursor.fetchone()["count"] == 0:
