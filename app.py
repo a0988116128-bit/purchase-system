@@ -271,9 +271,9 @@ def api_save_customer():
         conn.execute("""INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
                         VALUES (?, ?, ?, ?, ?)
                         ON CONFLICT(customer_code) DO UPDATE SET customer_name=?, tax_id=?, contact_info=?, payment_terms=?""",
-                     (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
-                      data.get("contact_info"), data.get("payment_terms"),
-                      data.get("customer_name"), data.get("tax_id"), data.get("contact_info"), data.get("payment_terms")))
+                   (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
+                    data.get("contact_info"), data.get("payment_terms"),
+                    data.get("customer_name"), data.get("tax_id"), data.get("contact_info"), data.get("payment_terms")))
         conn.commit()
         conn.close()
         return jsonify({"success": True, "message": "✔ 客戶資料存檔/修改成功！"})
@@ -308,10 +308,10 @@ def save_employee():
         conn.execute("""INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, note)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(emp_id) DO UPDATE SET emp_name=?, department=?, title=?, phone=?, hire_date=?, base_salary=?, status=?, note=?""",
-                     (data.get("emp_id"), data.get("emp_name"), data.get("department"), data.get("title"),
-                      data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note"),
-                      data.get("emp_name"), data.get("department"), data.get("title"), data.get("phone"),
-                      data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note")))
+                   (data.get("emp_id"), data.get("emp_name"), data.get("department"), data.get("title"),
+                    data.get("phone"), data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note"),
+                    data.get("emp_name"), data.get("department"), data.get("title"), data.get("phone"),
+                    data.get("hire_date"), data.get("base_salary"), data.get("status"), data.get("note")))
         conn.commit()
         conn.close()
         return jsonify({"success": True, "message": "✔ 員工資料存檔/修改成功！"})
@@ -436,7 +436,7 @@ def save_inbound():
             conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
                             VALUES (?, ?, '五金配件', ?, ?, ?, 10, '進貨入庫')
                             ON CONFLICT(sku) DO UPDATE SET stock = stock + ?""",
-                         (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty"), item.get("actual_qty")))
+                       (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty"), item.get("actual_qty")))
         v_display = f"{v_id} {v_name}".strip() if v_id else v_name
         conn.execute("INSERT OR REPLACE INTO ap_invoices VALUES (?,?,?,?, '月結30天', ?, '未付')",
             (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
@@ -542,8 +542,8 @@ def save_inventory_transaction():
         total_amt = qty * price
         conn.execute("""INSERT INTO inventory_transactions (trans_date, trans_type, order_id, customer_code, customer_name, sku, qty, price, total_amount, cogs, keyin_user, status, note, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '已入帳', ?, ?)""",
-                     (data.get("transDate"), ttype, data.get("orderId"), data.get("customerCode"), data.get("customerName"),
-                      sku, qty, price, total_amt, cogs, data.get("keyinUser"), data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                   (data.get("transDate"), ttype, data.get("orderId"), data.get("customerCode"), data.get("customerName"),
+                    sku, qty, price, total_amt, cogs, data.get("keyinUser"), data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         conn.close()
         return jsonify({"success": True, "message": f"【{ttype}】單據登錄成功！結轉 COGS: ${cogs:,.0f}"})
@@ -3160,61 +3160,6 @@ SUPPLIERS_HTML = """
 </body>
 </html>
 """
-
-# API 路由補充：客戶、庫存、發票 CRUD
-@app.route("/api/customers/list")
-def api_get_customers():
-    conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM customers ORDER BY customer_code").fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-@app.route("/api/customers/save", methods=["POST"])
-def api_save_customer():
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    data = request.get_json()
-    try:
-        conn = get_db_connection()
-        conn.execute("""INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms)
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT(customer_code) DO UPDATE SET customer_name=?, tax_id=?, contact_info=?, payment_terms=?""",
-                     (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
-                      data.get("contact_info"), data.get("payment_terms"),
-                      data.get("customer_name"), data.get("tax_id"), data.get("contact_info"), data.get("payment_terms")))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 客戶資料存檔/修改成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/customers/delete/<string:c_code>", methods=["POST"])
-def api_delete_customer(c_code):
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    try:
-        conn = get_db_connection()
-        conn.execute("DELETE FROM customers WHERE customer_code = ?", (c_code,))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 客戶刪除成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/inventory/save", methods=["POST"])
-def api_save_inventory():
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    data = request.get_json()
-    try:
-        conn = get_db_connection()
-        conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(sku) DO UPDATE SET name=?, category=?, cost=?, price=?, stock=?, safety_stock=?, note=?""",
-                     (data.get("sku"), data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
-                      data.get("stock"), data.get("safety_stock"), data.get("note"),
-                      data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
-                      data.get("stock"), data.get("safety_stock"), data.get("note")))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 商品存檔/修改成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
