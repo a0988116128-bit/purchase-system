@@ -754,6 +754,36 @@ def save_payment():
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error", "message": str(e)})
 
+@app.route("/api/ap/search/<string:inbound_no>")
+def search_ap_record(inbound_no):
+    conn = get_db_connection()
+    inv = conn.execute("SELECT * FROM ap_invoices WHERE inbound_no = ?", (inbound_no.upper(),)).fetchone()
+    if not inv:
+        conn.close()
+        return jsonify({"success": False, "message": "查無此進貨單號的應付帳款紀錄"})
+    
+    payments = conn.execute("SELECT * FROM ap_payments WHERE inbound_no = ? ORDER BY pay_date ASC", (inbound_no.upper(),)).fetchall()
+    total_paid = sum(p["pay_amount"] for p in payments)
+    unpaid = max(0, inv["total_amount"] - total_paid)
+    
+    history = []
+    for p in payments:
+        history.append({
+            "payNo": p["pay_no"], "payDate": p["pay_date"], "vendorName": p["vendor_name"],
+            "payAmount": p["pay_amount"], "payMethod": p["pay_method"], "remarks": p["remarks"]
+        })
+    conn.close()
+    return jsonify({
+        "success": True,
+        "data": {
+            "inboundNo": inv["inbound_no"], "inboundDate": inv["inbound_date"],
+            "vendorDisplay": inv["vendor_display"], "totalAmount": inv["total_amount"],
+            "totalPaid": total_paid, "currentUnpaid": unpaid,
+            "status": "已結清" if unpaid <= 0 else ("部分付款" if total_paid > 0 else "未付"),
+            "historyRecords": history
+        }
+    })
+
 @app.route("/api/ar/summary")
 def get_ar_summary():
     conn = get_db_connection()
@@ -981,6 +1011,7 @@ MAIN_HTML = """
       <span class="nav-group-title"><i class="fa-solid fa-calculator"></i> 帳款與財務：</span>
       <div class="nav-group-buttons">
         <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
+        <button type="button" class="tab-btn" id="btnTabApPro" onclick="switchTab('apPro')">📤 專業應付</button>
         <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
         <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收</button>
         <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 司機運費對帳</button>
@@ -1448,7 +1479,66 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 13. 專業應收帳款管理 (AR Pro) -->
+  <!-- 13. 專業應付帳款管理 (AP Pro) - 新增：支援付款與結轉下期 -->
+  <div id="apProView" class="app-view">
+    <div style="padding:22px 30px;">
+      <div class="input-group input-group-sm mb-3">
+        <input type="text" id="apSearchId" class="form-control" placeholder="輸入進貨單號查歷史明細或登記付款（如 IN20260901）">
+        <button class="btn btn-outline-primary fw-bold" type="button" onclick="searchAPPro()">🔍 查詢進貨單應付</button>
+      </div>
+
+      <div id="apUnpaidBanner" class="unpaid-alert-card" style="display:none;"></div>
+
+      <form id="apForm" onsubmit="event.preventDefault(); submitAPPro();" style="padding:0;">
+        <div class="row g-2 mb-2">
+          <div class="col-6"><label class="form-label">進貨單號 *</label><input type="text" id="apInboundNo" class="form-control form-control-sm" required></div>
+          <div class="col-6"><label class="form-label">供應商名稱 *</label><input type="text" id="apVendorName" class="form-control form-control-sm" required></div>
+        </div>
+
+        <div class="finance-group">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="fw-bold text-success">💰 本次付款與結轉資訊：</span>
+            <span class="text-muted small">累計已付總額：<strong id="dispTotalPaidText" class="text-dark">$0</strong></span>
+          </div>
+          <div class="row g-2">
+            <div class="col-4"><label class="form-label">應付總額 ($)</label><input type="number" id="apTotalAmount" class="form-control form-control-sm" value="0" oninput="calcAPPro()"></div>
+            <div class="col-4"><label class="form-label text-primary fw-bold">本次付款金額 ($) *</label><input type="number" id="apPayAmount" class="form-control form-control-sm border-primary" value="0" oninput="calcAPPro()" required></div>
+            <div class="col-4"><label class="form-label text-danger fw-bold">未付餘額 (結轉下期) ($)</label><input type="number" id="apUnpaidAmount" class="form-control form-control-sm bg-light text-danger fw-bold" value="0" readonly></div>
+          </div>
+
+          <div class="row g-2 mt-2">
+            <div class="col-6">
+              <label class="form-label">付款方式 *</label>
+              <select id="apPayMethod" class="form-select form-select-sm">
+                <option value="銀行匯款" selected>🏦 銀行匯款</option><option value="現金">💵 現金</option><option value="支票">📑 應付票據</option>
+              </select>
+            </div>
+            <div class="col-6"><label class="form-label">付款日期 *</label><input type="date" id="apPayDate" class="form-control form-control-sm" required></div>
+          </div>
+        </div>
+
+        <div class="mb-3"><label class="form-label">備註說明 (結轉下期備註)</label><input type="text" id="apRemarks" class="form-control form-control-sm" placeholder="例：部分付款，餘額結轉下期..."></div>
+
+        <div id="apHistoryBox" class="history-card" style="display:none;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="fw-bold text-dark mb-0">📜 該進貨單歷史付款紀錄：</h6><span class="badge bg-secondary" id="apHistoryCountBadge">0 筆</span>
+          </div>
+          <div class="table-responsive bg-white rounded border">
+            <table class="table table-sm table-hover text-center align-middle mb-0" style="font-size:11.5px;">
+              <thead class="table-light"><tr><th>付款日期</th><th>方式</th><th>付款金額</th><th>備註</th></tr></thead>
+              <tbody id="apHistoryListBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <button type="submit" id="apSaveBtn" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 儲存並進行應付銷帳（未付自動結轉下期）</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 14. 專業應收帳款管理 (AR Pro) -->
   <div id="arProView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="input-group input-group-sm mb-3">
@@ -1533,7 +1623,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 14. 司機運費對帳系統 -->
+  <!-- 15. 司機運費對帳系統 -->
   <div id="printCenterView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 no-print">
@@ -1556,7 +1646,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 15. 應付帳款系統 -->
+  <!-- 16. 應付帳款系統 -->
   <div id="apView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
@@ -1571,13 +1661,13 @@ MAIN_HTML = """
         </div>
       </div>
       <table class="items-table">
-        <thead><tr><th>進貨單號</th><th>進貨日期</th><th>供應商</th><th>應付總額</th><th>付款條件</th><th>預計付款日</th><th>已付金額</th><th>未付餘額</th><th>狀態</th><th class="no-print">操作</th></tr></thead>
+        <thead><tr><th>進貨單號</th><th>進貨日期</th><th>供應商</th><th>應付總額</th><th>付款條件</th><th>預計付款日</th><th>已付金額</th><th>未付餘額 (結轉下期)</th><th>狀態</th><th class="no-print">操作</th></tr></thead>
         <tbody id="apTableBody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 16. 應收帳款系統 -->
+  <!-- 17. 應收帳款系統 -->
   <div id="arView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
@@ -1598,7 +1688,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 17. 財務系統 -->
+  <!-- 18. 財務系統 -->
   <div id="financeView" class="app-view">
     <div style="padding:25px 30px;">
       <div class="card p-3 mb-4 bg-light border no-print">
@@ -1716,9 +1806,10 @@ MAIN_HTML = """
   let cachedCustomers = [];
   let arBaseOrder = null;
   let arEditTargetRow = 0;
+  let apBaseOrder = null;
 
   window.addEventListener('DOMContentLoaded', () => {
-    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'transDate', 'empHireDate', 'payDate', 'perfOrderDate', 'ccDate', 'invDate', 'vDate'].forEach(id => {
+    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'apPayDate', 'transDate', 'empHireDate', 'payDate', 'perfOrderDate', 'ccDate', 'invDate', 'vDate'].forEach(id => {
       const el = document.getElementById(id); if (el) el.valueAsDate = new Date();
     });
     const mEl = document.getElementById('in_month'); if (mEl) mEl.value = new Date().toISOString().slice(0, 7);
@@ -1746,7 +1837,7 @@ MAIN_HTML = """
 
   function switchTab(tab) {
     currentTab = tab;
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
@@ -1790,6 +1881,7 @@ MAIN_HTML = """
     else if (currentTab === 'delivery') document.getElementById('deliveryForm').requestSubmit();
     else if (currentTab === 'trans') document.getElementById('transForm').requestSubmit();
     else if (currentTab === 'arPro') document.getElementById('arForm').requestSubmit();
+    else if (currentTab === 'apPro') document.getElementById('apForm').requestSubmit();
     else if (currentTab === 'inventory') document.getElementById('inventoryForm').requestSubmit();
     else if (currentTab === 'customer') document.getElementById('customerForm').requestSubmit();
     else if (currentTab === 'salesPerf') document.getElementById('salesPerfForm').requestSubmit();
@@ -2679,6 +2771,78 @@ MAIN_HTML = """
         if(res.success) loadPayroll();
       });
     }
+  }
+
+  // 專業應付帳款管理 (AP Pro)
+  function searchAPPro() {
+    const id = document.getElementById("apSearchId").value.trim().toUpperCase();
+    if (!id) return alert("請輸入進貨單號！");
+    fetch(`/api/ap/search/${id}`).then(r => r.json()).then(res => {
+      if (res.success) {
+        apBaseOrder = res.data;
+        document.getElementById("apInboundNo").value = apBaseOrder.inboundNo;
+        document.getElementById("apVendorName").value = apBaseOrder.vendorDisplay;
+        document.getElementById("apTotalAmount").value = apBaseOrder.totalAmount;
+        document.getElementById("dispTotalPaidText").innerText = "$" + apBaseOrder.totalPaid.toLocaleString();
+        document.getElementById("apPayAmount").value = apBaseOrder.currentUnpaid;
+        document.getElementById("apUnpaidAmount").value = 0;
+        
+        const banner = document.getElementById("apUnpaidBanner");
+        banner.style.display = "block";
+        banner.innerHTML = `<div class="d-flex justify-content-between align-items-center"><div><span class="badge bg-danger">${apBaseOrder.status}</span> 應付總額: $${apBaseOrder.totalAmount.toLocaleString()}，已付: $${apBaseOrder.totalPaid.toLocaleString()}</div><div>未付餘額 (結轉下期)：<strong class="text-danger fs-5">$${apBaseOrder.currentUnpaid.toLocaleString()}</strong></div></div>`;
+        
+        document.getElementById("apInboundNo").readOnly = true;
+        document.getElementById("apTotalAmount").readOnly = true;
+        renderAPHistoryTable(apBaseOrder.historyRecords);
+      } else alert(res.message);
+    });
+  }
+
+  function renderAPHistoryTable(records) {
+    const box = document.getElementById("apHistoryBox");
+    const tbody = document.getElementById("apHistoryListBody");
+    const badge = document.getElementById("apHistoryCountBadge");
+    tbody.innerHTML = "";
+    if (!records || records.length === 0) { box.style.display = "none"; return; }
+    badge.innerText = records.length + " 筆";
+    records.forEach(r => {
+      tbody.innerHTML += `<tr><td><strong>${r.payDate}</strong></td><td><span class="badge bg-secondary">${r.payMethod}</span></td><td class="text-end fw-bold text-success">$${r.payAmount.toLocaleString()}</td><td class="text-start">${r.remarks||''}</td></tr>`;
+    });
+    box.style.display = "block";
+  }
+
+  function calcAPPro() {
+    const total = parseFloat(document.getElementById("apTotalAmount").value) || 0;
+    const paid = apBaseOrder ? apBaseOrder.totalPaid : 0;
+    const thisPay = parseFloat(document.getElementById("apPayAmount").value) || 0;
+    const remain = Math.max(0, total - paid - thisPay);
+    document.getElementById("apUnpaidAmount").value = remain;
+  }
+
+  function submitAPPro() {
+    const payload = {
+      inbound_no: document.getElementById("apInboundNo").value.trim(),
+      vendor_name: document.getElementById("apVendorName").value.trim(),
+      pay_amount: parseFloat(document.getElementById("apPayAmount").value) || 0,
+      pay_method: document.getElementById("apPayMethod").value,
+      pay_date: document.getElementById("apPayDate").value,
+      remarks: document.getElementById("apRemarks").value.trim()
+    };
+    fetch('/api/ap/pay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        if (res.status === 'success') {
+          alert("🎉 應付帳款付款與銷帳成功！未付餘額已自動結轉。");
+          document.getElementById("apForm").reset();
+          document.getElementById("apUnpaidBanner").style.display = "none";
+          document.getElementById("apHistoryBox").style.display = "none";
+          document.getElementById("apInboundNo").readOnly = false;
+          document.getElementById("apTotalAmount").readOnly = false;
+          apBaseOrder = null;
+          loadAP();
+        } else {
+          alert("✖ 失敗：" + res.message);
+        }
+      });
   }
 
   // 專業應收帳款 (AR Pro)
