@@ -4,9 +4,8 @@ import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_perfect_system_2026_v2"
+app.secret_key = "pezang_ultimate_enterprise_2026"
 
-# 自動判斷資料庫路徑：Render 雲端使用 /tmp/database.db，本地使用 database.db
 DB_PATH = (
     "/tmp/database.db"
     if os.environ.get("RENDER")
@@ -28,7 +27,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                password TEXT NOT NULL
+                password TEXT NOT NULL,
+                role TEXT
             )
         """)
 
@@ -63,7 +63,21 @@ def init_db():
             )
         """)
 
-        # 5. 採購單主檔與明細
+        # 5. 商品與庫存主檔
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_items (
+                sku TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT,
+                cost REAL DEFAULT 0,
+                price REAL DEFAULT 0,
+                stock INTEGER DEFAULT 0,
+                safety_stock INTEGER DEFAULT 0,
+                note TEXT
+            )
+        """)
+
+        # 6. 採購單主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS purchase_orders (
                 po_number TEXT PRIMARY KEY, purchaser TEXT, order_date TEXT, delivery_date TEXT,
@@ -81,7 +95,7 @@ def init_db():
             )
         """)
 
-        # 6. 進貨驗收主檔與明細
+        # 7. 進貨驗收主檔與明細
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inbound_orders (
                 inbound_no TEXT PRIMARY KEY, receiver_name TEXT, warehouse TEXT,
@@ -94,15 +108,6 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT, inbound_no TEXT, warehouse TEXT,
                 model TEXT, product_name TEXT, specification TEXT, color TEXT,
                 ordered_qty INTEGER, actual_qty INTEGER, unit_price REAL, subtotal REAL, remarks TEXT
-            )
-        """)
-
-        # 7. 庫存帳
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS inventory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, warehouse TEXT, model TEXT,
-                product_name TEXT, specification TEXT, color TEXT, stock_qty INTEGER DEFAULT 0,
-                updated_at TEXT, UNIQUE(warehouse, model, color)
             )
         """)
 
@@ -138,7 +143,7 @@ def init_db():
             )
         """)
 
-        # 10. 應付帳款與付款
+        # 10. 應付帳款與付款記錄
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ap_invoices (
                 inbound_no TEXT PRIMARY KEY, inbound_date TEXT, vendor_display TEXT,
@@ -152,25 +157,56 @@ def init_db():
             )
         """)
 
-        # 11. 應收帳款與收款
+        # 11. 應收帳款明細表 (支援分次收款、司機、運費、舊貨費等)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ar_invoices (
-                do_number TEXT PRIMARY KEY, delivery_date TEXT, customer_display TEXT,
-                total_amount REAL, payment_term TEXT, due_date TEXT, status TEXT DEFAULT '未收'
+            CREATE TABLE IF NOT EXISTS ar_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT,
+                customer TEXT,
+                sales_amount REAL,
+                deposit REAL,
+                receive_amount REAL,
+                pay_type TEXT,
+                check_no TEXT,
+                check_due_date TEXT,
+                receive_date TEXT,
+                unpaid_amount REAL,
+                driver TEXT,
+                driver_area TEXT,
+                freight REAL,
+                old_item_fee REAL,
+                keyin_user TEXT,
+                note TEXT,
+                created_at TEXT
             )
         """)
+
+        # 12. 進銷存交易流水帳
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ar_collections (
-                col_no TEXT PRIMARY KEY, col_date TEXT, do_number TEXT,
-                customer_name TEXT, col_amount REAL, col_method TEXT, remarks TEXT, created_at TEXT
+            CREATE TABLE IF NOT EXISTS inventory_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trans_date TEXT,
+                trans_type TEXT,
+                order_id TEXT,
+                customer_code TEXT,
+                customer_name TEXT,
+                sku TEXT,
+                qty INTEGER,
+                price REAL,
+                total_amount REAL,
+                cogs REAL,
+                keyin_user TEXT,
+                status TEXT,
+                note TEXT,
+                created_at TEXT
             )
         """)
 
         # 預設資料初始化
         cursor.execute("SELECT COUNT(*) FROM users")
         if cursor.fetchone()[0] == 0:
-            cursor.executemany("INSERT INTO users (id, name, password) VALUES (?, ?, ?)",
-                [("01", "黃詠甯", "0320"), ("02", "江婉秀", "1234"), ("admin", "系統管理員", "pezang888")])
+            cursor.executemany("INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)",
+                [("01", "黃詠甯", "0320", "系統管理"), ("02", "經辦人員", "1234", "門市經辦"), ("admin", "系統管理員", "pezang888", "系統管理")])
 
         cursor.execute("SELECT COUNT(*) FROM suppliers")
         if cursor.fetchone()[0] == 0:
@@ -181,13 +217,23 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM customers")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("INSERT INTO customers VALUES (?, ?, ?, ?, ?)",
-                [("C01", "特力屋內湖店", "11223344", "林主任", "月結30天"),
-                 ("C02", "詩肯柚木", "55667788", "張經理", "月結60天")])
+                [("C001", "王小明", "0912-345678", "台北市中正區忠孝東路一段1號", "VIP客戶"),
+                 ("C002", "林美華", "0922-888999", "新北市中和區中原街95號", "櫃體設計案"),
+                 ("C003", "張大山", "0933-123123", "台中市西屯區台灣大道三段", "老客戶介紹")])
 
         cursor.execute("SELECT COUNT(*) FROM warehouses")
         if cursor.fetchone()[0] == 0:
             cursor.executemany("INSERT INTO warehouses (warehouse_name) VALUES (?)",
                 [("八里倉",), ("南倉",), ("土城門市倉",), ("外倉",)])
+
+        cursor.execute("SELECT COUNT(*) FROM inventory_items")
+        if cursor.fetchone()[0] == 0:
+            cursor.executemany("INSERT INTO inventory_items VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+                ("706004S", "悍高智慧收納五金", "五金配件", 1200, 2500, 50, 10, "熱銷款"),
+                ("101055", "頂級緩衝抽屜組", "櫥櫃五金", 800, 1800, 30, 5, "標準配備"),
+                ("BED-01", "天然乳膠獨立筒床墊 (標準)", "床墊系列", 6000, 15000, 15, 3, "暢銷床墊"),
+                ("FUR-99", "北歐風實木餐邊櫃", "傢俱系列", 8500, 18000, 8, 2, "展示品")
+            ])
 
         conn.commit()
         conn.close()
@@ -203,7 +249,7 @@ init_db()
 def index():
     if "user_id" not in session:
         return redirect(url_for("login_page"))
-    return render_template_string(MAIN_HTML, user_name=session["user_name"])
+    return render_template_string(MAIN_HTML, user_name=session["user_name"], user_role=session.get("user_role", "經辦人"))
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
@@ -214,9 +260,9 @@ def login_page():
         user = conn.execute("SELECT * FROM users WHERE id = ? AND password = ?", (uid, pwd)).fetchone()
         conn.close()
         if user:
-            session["user_id"], session["user_name"] = user["id"], user["name"]
-            return jsonify({"success": True, "name": user["name"]}) if request.is_json else redirect(url_for("index"))
-        return jsonify({"success": False, "message": "帳號或密碼錯誤"}) if request.is_json else "登入失敗"
+            session["user_id"], session["user_name"], session["user_role"] = user["id"], user["name"], user["role"]
+            return jsonify({"success": True, "user": {"username": user["id"], "name": user["name"], "role": user["role"]}}) if request.is_json else redirect(url_for("index"))
+        return jsonify({"success": False, "message": "❌ 帳號或密碼錯誤"}) if request.is_json else "登入失敗"
     return render_template_string(LOGIN_HTML)
 
 @app.route("/logout")
@@ -291,9 +337,14 @@ def save_inbound():
         conn = get_db_connection()
         conn.execute("DELETE FROM inbound_orders WHERE inbound_no = ?", (in_no,))
         conn.execute("DELETE FROM inbound_items WHERE inbound_no = ?", (in_no,))
+        
+        v_id = data.get("vendor_id", "") or ""
+        v_name = data.get("vendor_name", "") or "未命名供應商"
+
         conn.execute("INSERT INTO inbound_orders VALUES (?,?,?,?,?,?,?,?,?)",
             (in_no, data.get("receiver_name"), data.get("warehouse", "八里倉"), data.get("po_no"),
-             data.get("inbound_date"), data.get("month"), data.get("vendor_id"), data.get("vendor_name"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+             data.get("inbound_date"), data.get("month"), v_id, v_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
         total_amt = 0
         for item in data.get("items", []):
             sub = item.get("actual_qty", 0) * item.get("unit_price", 0)
@@ -303,14 +354,14 @@ def save_inbound():
                 (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
             
-            conn.execute("""INSERT INTO inventory (warehouse, model, product_name, specification, color, stock_qty, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(warehouse, model, color) 
-                            DO UPDATE SET stock_qty = stock_qty + ?, updated_at = ?""",
-                         (wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"), item.get("actual_qty"), datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                          item.get("actual_qty"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            # 同步更新庫存
+            sku = item.get("model")
+            conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
+                            VALUES (?, ?, '五金配件', ?, ?, ?, 10, '進貨入庫')
+                            ON CONFLICT(sku) DO UPDATE SET stock = stock + ?""",
+                         (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty"), item.get("actual_qty")))
 
-        v_display = (data.get("vendor_id", "") + " " if data.get("vendor_id") else "") + (data.get("vendor_name") or "")
+        v_display = f"{v_id} {v_name}".strip() if v_id else v_name
         conn.execute("INSERT OR REPLACE INTO ap_invoices VALUES (?,?,?,?, '月結30天', ?, '未付')",
             (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
         conn.commit()
@@ -372,9 +423,14 @@ def save_delivery():
         conn = get_db_connection()
         conn.execute("DELETE FROM delivery_orders WHERE do_number = ?", (do_no,))
         conn.execute("DELETE FROM delivery_items WHERE do_number = ?", (do_no,))
+        
+        c_id = data.get("customer_code", "") or ""
+        c_name = data.get("customer_name", "") or "未命名客戶"
+
         conn.execute("INSERT INTO delivery_orders VALUES (?,?,?,?,?,?,?,?,?)",
             (do_no, data.get("shipper_name"), data.get("warehouse", "八里倉"), data.get("so_no"),
-             data.get("delivery_date"), data.get("customer_code"), data.get("customer_name"), data.get("grand_total", 0), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+             data.get("delivery_date"), c_id, c_name, data.get("grand_total", 0), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
         total_amt = 0
         for item in data.get("items", []):
             sub = item.get("shipped_qty", 0) * item.get("unit_price", 0)
@@ -384,11 +440,11 @@ def save_delivery():
                 (do_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
                  item.get("shipped_qty"), item.get("unit_price"), sub, item.get("remarks")))
             
-            conn.execute("""UPDATE inventory SET stock_qty = stock_qty - ?, updated_at = ? 
-                            WHERE warehouse = ? AND model = ? AND color = ?""",
-                         (item.get("shipped_qty"), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), wh, item.get("model"), item.get("color")))
+            # 扣庫存
+            sku = item.get("model")
+            conn.execute("UPDATE inventory_items SET stock = stock - ? WHERE sku = ?", (item.get("shipped_qty"), sku))
 
-        c_display = (data.get("customer_code", "") + " " if data.get("customer_code") else "") + (data.get("customer_name") or "")
+        c_display = f"{c_id} {c_name}".strip() if c_id else c_name
         conn.execute("INSERT OR REPLACE INTO ar_invoices VALUES (?,?,?,?, '月結30天', ?, '未收')",
             (do_no, data.get("delivery_date"), c_display, total_amt, data.get("delivery_date")))
         conn.commit()
@@ -408,13 +464,135 @@ def get_delivery(do_no):
     return jsonify({"found": True, "header": dict(dOrder), "items": items})
 
 
-# --- 庫存、財務與會計 API ---
+# --- 庫存、進銷存流水帳、應收/應付 API ---
 @app.route("/api/inventory/list")
 def get_inventory():
     conn = get_db_connection()
-    rows = conn.execute("SELECT * FROM inventory ORDER BY warehouse, model").fetchall()
+    rows = conn.execute("SELECT sku, name, category, cost, price, stock FROM inventory_items ORDER BY sku").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+@app.route("/api/inventory/transaction/save", methods=["POST"])
+def save_inventory_transaction():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        ttype = data.get("transType")
+        sku = data.get("transSku")
+        qty = int(data.get("transQty", 0))
+        price = float(data.get("transPrice", 0))
+        
+        item = conn.execute("SELECT * FROM inventory_items WHERE sku = ?", (sku,)).fetchone()
+        if not item: return jsonify({"success": False, "message": "找不到商品"})
+        
+        cost = item["cost"]
+        current_stock = item["stock"]
+        
+        if ttype == "進貨":
+            conn.execute("UPDATE inventory_items SET stock = stock + ? WHERE sku = ?", (qty, sku))
+            cogs = 0
+        elif ttype == "進貨退回":
+            conn.execute("UPDATE inventory_items SET stock = MAX(0, stock - ?) WHERE sku = ?", (qty, sku))
+            cogs = 0
+        elif ttype == "銷貨":
+            if current_stock < qty: return jsonify({"success": False, "message": f"庫存不足，剩餘 {current_stock} 件"})
+            conn.execute("UPDATE inventory_items SET stock = stock - ? WHERE sku = ?", (qty, sku))
+            cogs = qty * cost
+        elif ttype == "銷貨退回":
+            conn.execute("UPDATE inventory_items SET stock = stock + ? WHERE sku = ?", (qty, sku))
+            cogs = -(qty * cost)
+        else:
+            cogs = 0
+
+        total_amt = qty * price
+        conn.execute("""INSERT INTO inventory_transactions (trans_date, trans_type, order_id, customer_code, customer_name, sku, qty, price, total_amount, cogs, keyin_user, status, note, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '已入帳', ?, ?)""",
+                     (data.get("transDate"), ttype, data.get("orderId"), data.get("customerCode"), data.get("customerName"),
+                      sku, qty, price, total_amt, cogs, data.get("keyinUser"), data.get("transNote"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": f"【{ttype}】單據登錄成功！結轉 COGS: ${cogs:,.0f}"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/ar/search/<string:order_id>")
+def search_ar_record(order_id):
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM ar_records WHERE order_id = ? ORDER BY id ASC", (order_id.upper(),)).fetchall()
+    conn.close()
+    if not rows: return jsonify({"success": False, "message": "查無此訂單收款紀錄"})
+    
+    history = []
+    total_col = 0
+    base = dict(rows[0])
+    for r in rows:
+        amt = r["receive_amount"]
+        total_col += amt
+        history.append({
+            "rowIndex": r["id"], "date": r["receive_date"], "payType": r["pay_type"],
+            "amount": amt, "checkNo": r["check_no"], "checkDueDate": r["check_due_date"],
+            "driver": r["driver"], "driverArea": r["driver_area"], "freight": r["freight"],
+            "oldItemFee": r["old_item_fee"], "user": r["keyin_user"], "note": r["note"]
+        })
+
+    current_unpaid = max(0, base["sales_amount"] - base["deposit"] - total_col)
+    return jsonify({
+        "success": True,
+        "data": {
+            "orderId": base["order_id"], "customer": base["customer"],
+            "salesAmount": base["sales_amount"], "deposit": base["deposit"],
+            "totalCollected": total_col, "currentUnpaid": current_unpaid,
+            "discrepancyStatus": "相符" if current_unpaid == 0 else "短收 (欠款)",
+            "balanceNote": "✨ 此訂單已結清" if current_unpaid == 0 else f"🚨 尚欠 ${current_unpaid:,.0f}",
+            "driver": base["driver"], "driverArea": base["driver_area"],
+            "freight": base["freight"], "oldItemFee": base["old_item_fee"],
+            "historyRecords": history
+        }
+    })
+
+@app.route("/api/ar/save", methods=["POST"])
+def save_ar_record():
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        is_edit = data.get("isEditSpecificRow")
+        target_id = data.get("targetRowIndex")
+        
+        if is_edit and target_id:
+            conn.execute("""UPDATE ar_records SET receive_amount=?, pay_type=?, check_no=?, check_due_date=?, receive_date=?, unpaid_amount=?, driver=?, driver_area=?, freight=?, old_item_fee=?, note=? WHERE id=?""",
+                         (data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
+                          data.get("receiveDate"), data.get("unpaidAmount"), data.get("driver"), data.get("driverArea"),
+                          data.get("freight"), data.get("oldItemFee"), data.get("note"), target_id))
+        else:
+            conn.execute("""INSERT INTO ar_records (order_id, customer, sales_amount, deposit, receive_amount, pay_type, check_no, check_due_date, receive_date, unpaid_amount, driver, driver_area, freight, old_item_fee, keyin_user, note, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                         (data.get("orderId"), data.get("customer"), data.get("salesAmount"), data.get("deposit"),
+                          data.get("receiveAmount"), data.get("payType"), data.get("checkNo"), data.get("checkDueDate"),
+                          data.get("receiveDate"), data.get("unpaidAmount"), data.get("driver"), data.get("driverArea"),
+                          data.get("freight"), data.get("oldItemFee"), data.get("keyinUser"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "🎉 收款紀錄儲存成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/print/data")
+def get_print_data():
+    start = request.args.get("startDate", "")
+    end = request.args.get("endDate", "")
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM ar_records WHERE receive_date BETWEEN ? AND ? ORDER BY receive_date ASC", (start, end)).fetchall()
+    conn.close()
+    
+    lst = []
+    for r in rows:
+        lst.append({
+            "id": r["order_id"], "customer": r["customer"], "sales": r["sales_amount"],
+            "deposit": r["deposit"], "received": r["receive_amount"], "payType": r["pay_type"],
+            "checkNo": r["check_no"], "checkDueDate": r["check_due_date"], "date": r["receive_date"],
+            "unpaid": r["unpaid_amount"], "driver": r["driver"], "driverArea": r["driver_area"],
+            "freight": r["freight"], "oldFee": r["old_item_fee"], "user": r["keyin_user"], "note": r["note"]
+        })
+    return jsonify({"type": "AR", "list": lst})
 
 @app.route("/api/ap/summary")
 def get_ap_summary():
@@ -449,26 +627,16 @@ def get_ar_summary():
     invoices = conn.execute("SELECT * FROM ar_invoices").fetchall()
     data = []
     for inv in invoices:
-        collected = conn.execute("SELECT SUM(col_amount) as t FROM ar_collections WHERE do_number = ?", (inv["do_number"],)).fetchone()["t"] or 0
+        collected = conn.execute("SELECT SUM(receive_amount) as t FROM ar_records WHERE order_id = ?", (inv["do_number"],)).fetchone()["t"] or 0
         uncollected = inv["total_amount"] - collected
         status = "已收清" if uncollected <= 0 else ("部分收款" if collected > 0 else "未收")
-        data.append({**dict(inv), "collected_amount": collected, "uncollected_amount": uncollected, "status": status})
+        data.append({
+            "do_number": inv["do_number"], "delivery_date": inv["delivery_date"], "customer_display": inv["customer_display"],
+            "total_amount": inv["total_amount"], "payment_term": inv["payment_term"], "due_date": inv["due_date"],
+            "collected_amount": collected, "uncollected_amount": uncollected, "status": status
+        })
     conn.close()
     return jsonify({"found": True, "data": data})
-
-@app.route("/api/ar/collect", methods=["POST"])
-def save_collection():
-    data = request.get_json()
-    col_no = "COL" + datetime.now().strftime("%Y%m%d%H%M%S")
-    try:
-        conn = get_db_connection()
-        conn.execute("INSERT INTO ar_collections VALUES (?,?,?,?,?,?,?,?)",
-            (col_no, data.get("col_date"), data.get("do_number"), data.get("customer_name"),
-             data.get("col_amount"), data.get("col_method"), data.get("remarks"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)})
 
 @app.route("/api/finance/summary")
 def get_finance_summary():
@@ -476,7 +644,7 @@ def get_finance_summary():
     total_ap = conn.execute("SELECT SUM(total_amount) FROM ap_invoices").fetchone()[0] or 0
     paid_ap = conn.execute("SELECT SUM(pay_amount) FROM ap_payments").fetchone()[0] or 0
     total_ar = conn.execute("SELECT SUM(total_amount) FROM ar_invoices").fetchone()[0] or 0
-    collected_ar = conn.execute("SELECT SUM(col_amount) FROM ar_collections").fetchone()[0] or 0
+    collected_ar = conn.execute("SELECT SUM(receive_amount) FROM ar_records").fetchone()[0] or 0
     conn.close()
     return jsonify({
         "total_ap": total_ap, "paid_ap": paid_ap, "unpaid_ap": total_ap - paid_ap,
@@ -559,10 +727,11 @@ MAIN_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>珮藏居傢俱有限公司 - 企業全方位管理系統</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     :root { --primary: #0f172a; --brand: #c59b27; --border: #94a3b8; --text: #1e293b; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background-color: #f1f5f9; color: var(--text); padding: 20px 20px 90px 20px; display: flex; justify-content: center; }
+    body { background-color: #f1f5f9; color: var(--text); padding: 20px 20px 90px 20px; display: flex; justify-content: center; font-size: 13px; }
     .container { width: 100%; max-width: 1100px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid var(--border); overflow: hidden; }
     .nav-tabs { background: #1e293b; padding: 10px 20px; display: flex; gap: 6px; border-bottom: 2px solid var(--brand); justify-content: space-between; align-items: center; flex-wrap: wrap; }
     .nav-tabs-left { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -597,7 +766,12 @@ MAIN_HTML = """
     .btn-print { background: #475569; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
     .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
     .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 9px 12px; border-radius: 6px; cursor: pointer; }
-    .msgBox { display: none; margin-top: 8px; padding: 6px; border-radius: 4px; font-size: 12px; text-align: center; font-weight: 600; }
+    .finance-group { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .inventory-group { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 8px; margin-top: 6px; }
+    .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; margin-top: 14px; }
+    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 12px; margin-bottom: 14px; }
     .app-view { display: none; } .app-view.active { display: block; }
     @media print { .nav-tabs, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } body { background-color: #fff; padding: 0; } .container { box-shadow: none; border: none; width: 100%; } form { padding: 10px; } }
   </style>
@@ -611,7 +785,10 @@ MAIN_HTML = """
       <button type="button" class="tab-btn" id="btnTabInbound" onclick="switchTab('inbound')">📦 進貨驗收</button>
       <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
       <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
-      <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存查詢</button>
+      <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存總覽</button>
+      <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
+      <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收帳款</button>
+      <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 出納對帳單</button>
       <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
       <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
       <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務系統</button>
@@ -780,19 +957,186 @@ MAIN_HTML = """
     <div style="padding:20px 30px;">
       <div style="display:flex; justify-content:flex-end; margin-bottom:10px;"><button type="button" class="btn-query" onclick="loadInventory()">🔄 重新整理庫存</button></div>
       <table class="items-table">
-        <thead><tr><th>倉庫別</th><th>產品型號</th><th>產品名稱</th><th>規格</th><th>顏色</th><th>現有庫存量</th><th>最後更新時間</th></tr></thead>
+        <thead><tr><th>商品型號/SKU</th><th>商品名稱</th><th>分類</th><th>進貨成本</th><th>建議售價</th><th>目前庫存數量</th></tr></thead>
         <tbody id="inventoryTableBody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 6. 應付帳款系統 -->
+  <!-- 6. 進退/銷退單據系統 -->
+  <div id="transView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>INVENTORY TRANSACTION (進退/銷退單據)</div></div>
+      <div class="po-company-info"><div>即時結轉 COGS 與庫存</div></div>
+    </div>
+    <form id="transForm" onsubmit="event.preventDefault(); submitTransaction();" style="padding:20px 30px;">
+      <div class="inventory-group">
+        <span class="fw-bold text-success d-block mb-2">📑 建立進銷存交易單據 (含訂單編號與客戶資訊)：</span>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label">單據類型 *</label>
+            <select id="transType" class="form-select form-select-sm fw-bold text-primary">
+              <option value="銷貨" selected>📦 銷貨 (自動扣庫存 & 結轉銷貨成本)</option>
+              <option value="進貨">📥 進貨 (增加庫存)</option>
+              <option value="銷貨退回">↩️ 銷貨退回 (商品加回庫存)</option>
+              <option value="進貨退回">🔙 進貨退回 (減少庫存)</option>
+            </select>
+          </div>
+          <div class="col-6"><label class="form-label">單據日期 *</label><input type="date" id="transDate" class="form-control form-control-sm" required></div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4"><label class="form-label">訂單編號</label><input type="text" id="transOrderId" class="form-control form-control-sm" placeholder="例: 4110213"></div>
+          <div class="col-4"><label class="form-label">客戶代號</label><input type="text" id="transCustCode" class="form-control form-control-sm" placeholder="例: C001"></div>
+          <div class="col-4"><label class="form-label">客戶名稱 *</label><input type="text" id="transCustName" class="form-control form-control-sm" placeholder="客戶抬頭" required></div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6"><label class="form-label">選擇商品 (SKU) *</label><select id="transSkuSelect" class="form-select form-select-sm" onchange="onSkuSelected()"></select></div>
+          <div class="col-6"><label class="form-label">商品型號 (SKU碼)</label><input type="text" id="transSku" class="form-control form-control-sm bg-white" readonly required></div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4"><label class="form-label">交易數量 *</label><input type="number" id="transQty" class="form-control form-control-sm fw-bold" value="1" min="1" required></div>
+          <div class="col-4"><label class="form-label">單價 ($) *</label><input type="number" id="transPrice" class="form-control form-control-sm fw-bold" value="0" required></div>
+          <div class="col-4"><label class="form-label">KEY IN 人員</label><input type="text" id="transKeyin" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 確認並送出單據</button>
+    </form>
+  </div>
+
+  <!-- 7. 專業應收帳款管理 (AR Pro) -->
+  <div id="arProView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE PRO (出納收款與對帳)</div></div>
+      <div class="po-company-info"><div>每筆收款獨立列帳</div></div>
+    </div>
+    <div style="padding:20px 30px;">
+      <div class="input-group input-group-sm mb-3">
+        <input type="text" id="arSearchId" class="form-control" placeholder="輸入訂單編號查歷史明細或新增再次收款（如 4110213）">
+        <button class="btn btn-outline-primary fw-bold" type="button" onclick="searchAR()">🔍 查詢單據歷史</button>
+      </div>
+
+      <div id="arUnpaidBanner" class="unpaid-alert-card" style="display:none;"></div>
+
+      <form id="arForm" onsubmit="event.preventDefault(); submitAR();" style="padding:0;">
+        <div class="row g-2 mb-2">
+          <div class="col-6"><label class="form-label">訂單編號 *</label><input type="text" id="arOrderId" class="form-control form-control-sm" required></div>
+          <div class="col-6"><label class="form-label">客戶名稱 *</label><input type="text" id="arCustomer" class="form-control form-control-sm" required></div>
+        </div>
+
+        <div class="finance-group">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="fw-bold text-success">💰 本次收款資訊：</span>
+            <span class="text-muted small">累計已收總額：<strong id="dispTotalCollectedText" class="text-dark">$0</strong></span>
+          </div>
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">總金額 ($)</label><input type="number" id="arSalesAmount" class="form-control form-control-sm" value="0" oninput="calcAR()"></div>
+            <div class="col-3"><label class="form-label">已收訂金 ($)</label><input type="number" id="arDeposit" class="form-control form-control-sm" value="0" oninput="calcAR()"></div>
+            <div class="col-3"><label class="form-label text-primary fw-bold">本次收款 ($) *</label><input type="number" id="arReceiveAmount" class="form-control form-control-sm border-primary" value="0" oninput="calcAR()" required></div>
+            <div class="col-3"><label class="form-label text-danger fw-bold">剩餘未收 ($)</label><input type="number" id="arUnpaidAmount" class="form-control form-control-sm bg-light text-danger fw-bold" value="0" readonly></div>
+          </div>
+
+          <div class="row g-2 mt-2">
+            <div class="col-6">
+              <label class="form-label">收款方式 *</label>
+              <select id="arPayType" class="form-select form-select-sm" onchange="toggleARCheckFields()">
+                <option value="現金" selected>💵 現金 (司機代收)</option><option value="匯款">🏦 匯款</option><option value="刷卡">💳 刷卡</option><option value="應收票據">📑 應收票據</option>
+              </select>
+            </div>
+            <div class="col-6"><label class="form-label">收款日期 *</label><input type="date" id="arReceiveDate" class="form-control form-control-sm" required></div>
+          </div>
+
+          <div id="boxARCheck" class="check-box mt-2" style="display:none;">
+            <div class="row g-2">
+              <div class="col-6"><label class="form-label text-danger">支票號碼 *</label><input type="text" id="arCheckNo" class="form-control form-control-sm"></div>
+              <div class="col-6"><label class="form-label text-danger">到期日 *</label><input type="date" id="arCheckDueDate" class="form-control form-control-sm"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-2 border rounded bg-light mb-2">
+          <div class="row g-2">
+            <div class="col-4">
+              <label class="form-label">運送人員/倉別</label>
+              <select id="arDriver" class="form-select form-select-sm" onchange="updateDriverLogic()">
+                <option value="大蔡">大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option>
+              </select>
+            </div>
+            <div class="col-4"><label class="form-label">送貨地區</label><select id="arDriverArea" class="form-select form-select-sm" onchange="calcFreight()"></select></div>
+            <div class="col-4"><label class="form-label text-danger">運費 ($)</label><input type="number" id="arFreight" class="form-control form-control-sm" value="0"></div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6"><label class="form-label">舊貨回收費 ($)</label><input type="number" id="arOldItemFee" class="form-control form-control-sm" value="0"></div>
+            <div class="col-6"><label class="form-label">KEY IN 人員</label><input type="text" id="arKeyinUser" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
+          </div>
+        </div>
+
+        <div class="mb-3"><label class="form-label">備註說明</label><input type="text" id="arNote" class="form-control form-control-sm"></div>
+
+        <div id="arHistoryBox" class="history-card" style="display:none;">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="fw-bold text-dark mb-0">📜 該訂單歷史獨立收款清單：</h6><span class="badge bg-secondary" id="arHistoryCountBadge">0 筆</span>
+          </div>
+          <div class="table-responsive bg-white rounded border">
+            <table class="table table-sm table-hover text-center align-middle mb-0" style="font-size:11.5px;">
+              <thead class="table-light"><tr><th>收款日期</th><th>方式</th><th>金額</th><th>票號/到期日</th><th>經辦</th><th>備註</th><th>操作</th></tr></thead>
+              <tbody id="arHistoryListBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <button type="submit" id="arSaveBtn" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 儲存並新增一筆收款紀錄</button>
+          <button type="button" id="arCancelEditBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" style="display:none;" onclick="cancelRowEdit()">❌ 取消修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 8. 出納對帳單列印中心 -->
+  <div id="printCenterView" class="app-view">
+    <div class="po-header">
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>DRIVER CASH REPORT (出納對帳與交現結算)</div></div>
+      <div class="po-company-info"><div>依司機與起迄日期產出</div></div>
+    </div>
+    <div style="padding:20px 30px;">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 no-print">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <select id="printDriverFilter" class="form-select form-select-sm" style="width: 150px;">
+            <option value="ALL">🚚 全部司機/倉別</option><option value="大蔡">大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option>
+          </select>
+          <div class="d-flex align-items-center gap-1">
+            <input type="date" id="printStartDate" class="form-control form-control-sm" style="width: 130px;">
+            <span>~</span>
+            <input type="date" id="printEndDate" class="form-control form-control-sm" style="width: 130px;">
+          </div>
+          <button class="btn btn-primary btn-sm fw-bold px-3" onclick="loadPrintData()">載入對帳單</button>
+        </div>
+        <button class="btn btn-outline-dark btn-sm fw-bold" onclick="window.print()">🖨️ 列印 / 存為 PDF</button>
+      </div>
+      <div id="printContainer" class="p-3 border rounded bg-white" style="min-height: 250px;">
+        <div class="text-muted text-center py-5">請選取起迄日期並點擊「載入對帳單」以預覽並列印</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. 應付帳款系統 (含月份與日期區間篩選) -->
   <div id="apView" class="app-view">
     <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款與付款)</div></div>
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS PAYABLE (應付帳款與付款管理)</div></div>
       <div class="po-company-info"><div>進貨自動拋轉應付帳款</div></div>
     </div>
     <div style="padding:20px 30px;">
+      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
+        <div class="grid-3" style="align-items:end;">
+          <div class="form-group"><label>依付款/進貨月份篩選 (YYYY-MM)</label><input type="month" id="ap_filter_month" oninput="loadAP()"></div>
+          <div class="form-group"><label>日期區間 (起)</label><input type="date" id="ap_filter_start" onchange="loadAP()"></div>
+          <div class="form-group"><label>日期區間 (迄)</label><input type="date" id="ap_filter_end" onchange="loadAP()"></div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+          <button type="button" class="btn-reset" onclick="resetApFilter()" style="padding:5px 10px; font-size:12px;">清除篩選</button>
+          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印報表</button>
+        </div>
+      </div>
       <table class="items-table">
         <thead><tr><th>進貨單號</th><th>進貨日期</th><th>供應商</th><th>應付總額</th><th>付款條件</th><th>預計付款日</th><th>已付金額</th><th>未付餘額</th><th>狀態</th><th class="no-print">操作</th></tr></thead>
         <tbody id="apTableBody"></tbody>
@@ -800,21 +1144,32 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 7. 應收帳款系統 -->
+  <!-- 10. 應收帳款系統 (含月份與日期區間篩選) -->
   <div id="arView" class="app-view">
     <div class="po-header">
-      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款與收款)</div></div>
+      <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ACCOUNTS RECEIVABLE (應收帳款與收款管理)</div></div>
       <div class="po-company-info"><div>銷貨自動拋轉應收帳款</div></div>
     </div>
     <div style="padding:20px 30px;">
+      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
+        <div class="grid-3" style="align-items:end;">
+          <div class="form-group"><label>依收款/出貨月份篩選 (YYYY-MM)</label><input type="month" id="ar_filter_month" oninput="loadAR()"></div>
+          <div class="form-group"><label>日期區間 (起)</label><input type="date" id="ar_filter_start" onchange="loadAR()"></div>
+          <div class="form-group"><label>日期區間 (迄)</label><input type="date" id="ar_filter_end" onchange="loadAR()"></div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+          <button type="button" class="btn-reset" onclick="resetArFilter()" style="padding:5px 10px; font-size:12px;">清除篩選</button>
+          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印報表</button>
+        </div>
+      </div>
       <table class="items-table">
-        <thead><tr><th>出貨單號</th><th>出貨日期</th><th>客戶名稱</th><th>應收總額</th><th>付款條件</th><th>預計收款日</th><th>已收金額</th><th>未收餘額</th><th>狀態</th><th class="no-print">操作</th></tr></thead>
+        <thead><tr><th>出貨單號</th><th>出貨日期</th><th>客戶名稱</th><th>應收總額</th><th>付款條件</th><th>預計收款日</th><th>已收金額</th><th>未收餘額</th><th>狀態</th></tr></thead>
         <tbody id="arTableBody"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- 8. 財務系統 -->
+  <!-- 11. 財務系統 -->
   <div id="financeView" class="app-view">
     <div class="po-header">
       <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>FINANCIAL DASHBOARD (財務報表總覽)</div></div>
@@ -839,27 +1194,27 @@ MAIN_HTML = """
   </div>
 </div>
 
-<!-- 互動付款/收款 Modal -->
+<!-- 互動付款 Modal -->
 <div id="actionModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
   <div style="background:#fff; padding:25px; border-radius:8px; width:380px;">
-    <h3 id="modalTitle" style="margin-bottom:12px; font-size:16px; color:#0f172a;">登記作業</h3>
+    <h3 id="modalTitle" style="margin-bottom:12px; font-size:16px; color:#0f172a;">登記付款</h3>
     <form onsubmit="handleModalSubmit(event)" style="padding:0;">
       <input type="hidden" id="modalNo"><input type="hidden" id="modalType">
-      <div class="form-group" style="margin-bottom:8px;"><label>對象名稱</label><input type="text" id="modalName" class="readonly" readonly></div>
-      <div class="form-group" style="margin-bottom:8px;"><label class="required">日期</label><input type="date" id="modalDate" required></div>
-      <div class="form-group" style="margin-bottom:8px;"><label class="required">金額</label><input type="number" id="modalAmount" step="0.01" required></div>
-      <div class="form-group" style="margin-bottom:8px;"><label class="required">方式</label><select id="modalMethod"><option value="銀行匯款">銀行匯款</option><option value="現金">現金</option><option value="支票">支票</option></select></div>
+      <div class="form-group" style="margin-bottom:8px;"><label>供應商名稱</label><input type="text" id="modalName" class="readonly" readonly></div>
+      <div class="form-group" style="margin-bottom:8px;"><label class="required">付款日期</label><input type="date" id="modalDate" required></div>
+      <div class="form-group" style="margin-bottom:8px;"><label class="required">付款金額</label><input type="number" id="modalAmount" step="0.01" required></div>
+      <div class="form-group" style="margin-bottom:8px;"><label class="required">付款方式</label><select id="modalMethod"><option value="銀行匯款">銀行匯款</option><option value="現金">現金</option><option value="支票">支票</option></select></div>
       <div class="form-group" style="margin-bottom:15px;"><label>備註</label><input type="text" id="modalRemarks"></div>
       <div style="display:flex; justify-content:flex-end; gap:6px;">
         <button type="button" class="btn-reset" onclick="closeModal()" style="padding:6px 10px;">取消</button>
-        <button type="submit" class="btn-submit" style="padding:6px 14px;">確認送出</button>
+        <button type="submit" class="btn-submit" style="padding:6px 14px;">確認付款</button>
       </div>
     </form>
   </div>
 </div>
 
 <div class="floating-action-bar" id="floatingBar">
-  <button type="button" class="btn-submit" onclick="submitCurrentForm()">💾 儲存單據</button>
+  <button type="button" class="btn-submit" onclick="submitCurrentForm()">💾 儲存當前頁面</button>
   <button type="button" class="btn-print" onclick="window.print()">🖨️ 列印單據</button>
   <button type="button" class="btn-reset" onclick="resetCurrentForm()">🔄 清空重設</button>
   <button type="button" class="btn-logout" onclick="window.location.href='/logout'">🚪 登出</button>
@@ -868,23 +1223,38 @@ MAIN_HTML = """
 <script>
   let currentTab = 'purchase';
   let warehouseOptionsList = ['八里倉', '南倉', '土城門市倉', '外倉'];
+  let cachedInventory = [];
+  let arBaseOrder = null;
+  let arEditTargetRow = 0;
 
   window.addEventListener('DOMContentLoaded', () => {
-    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date'].forEach(id => {
+    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'transDate'].forEach(id => {
       const el = document.getElementById(id); if (el) el.valueAsDate = new Date();
     });
     const mEl = document.getElementById('in_month'); if (mEl) mEl.value = new Date().toISOString().slice(0, 7);
+    const today = new Date();
+    const firstDayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-01";
+    const todayStr = today.toISOString().split("T")[0];
+    const pStart = document.getElementById('printStartDate'); if (pStart) pStart.value = firstDayStr;
+    const pEnd = document.getElementById('printEndDate'); if (pEnd) pEnd.value = todayStr;
+
     for (let i = 0; i < 4; i++) { addPoItemRow(); addSoItemRow(); }
     fetch('/api/warehouses').then(r => r.json()).then(d => { if (d && d.length) warehouseOptionsList = d; });
+    loadInventory();
+    updateDriverLogic();
+    toggleARCheckFields();
   });
 
   function switchTab(tab) {
     currentTab = tab;
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'ap', 'ar', 'finance'].forEach(t => {
-      document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1)).className = (t === tab) ? 'tab-btn active' : 'tab-btn';
-      document.getElementById(t + 'View').className = (t === tab) ? 'app-view active' : 'app-view';
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'trans', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+      const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
+      const view = document.getElementById(t + 'View');
+      if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
+      if(view) view.className = (t === tab) ? 'app-view active' : 'app-view';
     });
     if (tab === 'inventory') loadInventory();
+    else if (tab === 'trans') prepareTransForm();
     else if (tab === 'ap') loadAP();
     else if (tab === 'ar') loadAR();
     else if (tab === 'finance') loadFinance();
@@ -913,6 +1283,8 @@ MAIN_HTML = """
     else if (currentTab === 'inbound') document.getElementById('inboundForm').requestSubmit();
     else if (currentTab === 'so') document.getElementById('soForm').requestSubmit();
     else if (currentTab === 'delivery') document.getElementById('deliveryForm').requestSubmit();
+    else if (currentTab === 'trans') document.getElementById('transForm').requestSubmit();
+    else if (currentTab === 'arPro') document.getElementById('arForm').requestSubmit();
   }
 
   function resetCurrentForm() {
@@ -1223,36 +1595,287 @@ MAIN_HTML = """
     });
   }
 
-  // 庫存、AP、AR、財務載入
+  // 庫存、進退/銷退
   function loadInventory() {
     fetch('/api/inventory/list').then(r => r.json()).then(data => {
+      cachedInventory = data || [];
       const tb = document.getElementById('inventoryTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:15px; color:#64748b;">目前無庫存記錄</td></tr>`; return; }
-      data.forEach(d => {
-        tb.innerHTML += `<tr><td>${d.warehouse}</td><td><strong>${d.model}</strong></td><td>${d.product_name}</td><td>${d.specification||'-'}</td><td>${d.color||'-'}</td><td style="text-align:center; font-weight:bold; color:${d.stock_qty>0?'#15803d':'#dc2626'};">${d.stock_qty}</td><td style="font-size:11px; color:#64748b;">${d.updated_at}</td></tr>`;
+      if (!cachedInventory.length) { tb.innerHTML = `<tr><td colspan="6" class="text-muted py-3">尚無庫存資料</td></tr>`; return; }
+      cachedInventory.forEach(item => {
+        tb.innerHTML += `<tr><td>${item.sku}</td><td class="text-start">${item.name}</td><td>${item.category}</td><td class="text-end">$${item.cost.toLocaleString()}</td><td class="text-end">$${item.price.toLocaleString()}</td><td class="text-end fw-bold text-success">${item.stock.toLocaleString()} 件</td></tr>`;
       });
     });
   }
 
+  function prepareTransForm() {
+    const sel = document.getElementById('transSkuSelect');
+    sel.innerHTML = '<option value="">-- 請選擇商品 --</option>';
+    cachedInventory.forEach((item, idx) => {
+      sel.innerHTML += `<option value="${idx}">【${item.sku}】${item.name} (庫存:${item.stock})</option>`;
+    });
+  }
+
+  function onSkuSelected() {
+    const idx = document.getElementById('transSkuSelect').value;
+    if (idx === "" || !cachedInventory[idx]) return;
+    const item = cachedInventory[idx];
+    document.getElementById('transSku').value = item.sku;
+    document.getElementById('transPrice').value = item.price;
+  }
+
+  function submitTransaction() {
+    const payload = {
+      transType: document.getElementById('transType').value,
+      orderId: document.getElementById('transOrderId').value,
+      customerCode: document.getElementById('transCustCode').value,
+      customerName: document.getElementById('transCustName').value,
+      transSku: document.getElementById('transSku').value,
+      transQty: document.getElementById('transQty').value,
+      transPrice: document.getElementById('transPrice').value,
+      transDate: document.getElementById('transDate').value,
+      transNote: document.getElementById('transNote').value,
+      keyinUser: document.getElementById('transKeyin').value
+    };
+    fetch('/api/inventory/transaction/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if (res.success) { document.getElementById('transForm').reset(); document.getElementById('transDate').value = new Date().toISOString().split("T")[0]; loadInventory(); }
+      });
+  }
+
+  // 專業應收帳款 (AR Pro)
+  function toggleARCheckFields() {
+    const type = document.getElementById("arPayType").value;
+    document.getElementById("boxARCheck").style.display = (type === "應收票據") ? "block" : "none";
+  }
+
+  function searchAR() {
+    const id = document.getElementById("arSearchId").value.trim().toUpperCase();
+    if (!id) return alert("請輸入訂單編號！");
+    fetch(`/api/ar/search/${id}`).then(r => r.json()).then(res => {
+      if (res.success) {
+        arBaseOrder = res.data;
+        arEditTargetRow = 0;
+        document.getElementById("arOrderId").value = arBaseOrder.orderId;
+        document.getElementById("arCustomer").value = arBaseOrder.customer;
+        document.getElementById("arSalesAmount").value = arBaseOrder.salesAmount;
+        document.getElementById("arDeposit").value = arBaseOrder.deposit;
+        document.getElementById("dispTotalCollectedText").innerText = "$" + (arBaseOrder.deposit + arBaseOrder.totalCollected).toLocaleString();
+        document.getElementById("arReceiveAmount").value = arBaseOrder.currentUnpaid;
+        document.getElementById("arUnpaidAmount").value = 0;
+        
+        const banner = document.getElementById("arUnpaidBanner");
+        banner.style.display = "block";
+        banner.innerHTML = `<div class="d-flex justify-content-between align-items-center"><div><span class="badge bg-danger">${arBaseOrder.discrepancyStatus}</span> 銷售總額: $${arBaseOrder.salesAmount.toLocaleString()}，已收: $${(arBaseOrder.deposit + arBaseOrder.totalCollected).toLocaleString()}</div><div>尚欠餘額：<strong class="text-danger fs-5">$${arBaseOrder.currentUnpaid.toLocaleString()}</strong></div></div>`;
+        
+        document.getElementById("arDriver").value = arBaseOrder.driver || '大蔡';
+        updateDriverLogic();
+        document.getElementById("arFreight").value = arBaseOrder.freight || 0;
+        document.getElementById("arOldItemFee").value = arBaseOrder.oldItemFee || 0;
+        document.getElementById("arNote").value = arBaseOrder.balanceNote || '';
+        
+        document.getElementById("arOrderId").readOnly = true;
+        document.getElementById("arSalesAmount").readOnly = true;
+        document.getElementById("arDeposit").readOnly = true;
+        renderARHistoryTable(arBaseOrder.historyRecords);
+      } else alert(res.message);
+    });
+  }
+
+  function renderARHistoryTable(records) {
+    const box = document.getElementById("arHistoryBox");
+    const tbody = document.getElementById("arHistoryListBody");
+    const badge = document.getElementById("arHistoryCountBadge");
+    tbody.innerHTML = "";
+    if (!records || records.length === 0) { box.style.display = "none"; return; }
+    badge.innerText = records.length + " 筆";
+    records.forEach(r => {
+      const checkInfo = (r.payType === "應收票據" && r.checkNo) ? `${r.checkNo} (到期:${r.checkDueDate})` : "-";
+      tbody.innerHTML += `<tr><td><strong>${r.date}</strong></td><td><span class="badge bg-secondary">${r.payType}</span></td><td class="text-end fw-bold text-primary">$${r.amount.toLocaleString()}</td><td>${checkInfo}</td><td>${r.user}</td><td class="text-start">${r.note||''}</td><td><button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size:11px;" onclick='loadSpecificRowForEdit(${JSON.stringify(r)})'>✏️ 修改</button></td></tr>`;
+    });
+    box.style.display = "block";
+  }
+
+  function loadSpecificRowForEdit(r) {
+    arEditTargetRow = r.rowIndex;
+    document.getElementById("arReceiveDate").value = r.date;
+    document.getElementById("arPayType").value = r.payType;
+    toggleARCheckFields();
+    document.getElementById("arCheckNo").value = r.checkNo || "";
+    document.getElementById("arCheckDueDate").value = r.checkDueDate || "";
+    document.getElementById("arReceiveAmount").value = r.amount;
+    document.getElementById("arNote").value = r.note || "";
+    document.getElementById("arSaveBtn").innerText = `✏️ 覆寫儲存【第 ${r.rowIndex} 筆】`;
+    document.getElementById("arCancelEditBtn").style.display = "block";
+    calcAR();
+  }
+
+  function cancelRowEdit() {
+    arEditTargetRow = 0;
+    if(arBaseOrder) document.getElementById("arReceiveAmount").value = arBaseOrder.currentUnpaid;
+    document.getElementById("arSaveBtn").innerText = "💾 儲存並新增一筆收款紀錄";
+    document.getElementById("arCancelEditBtn").style.display = "none";
+    calcAR();
+  }
+
+  function calcAR() {
+    const sales = parseFloat(document.getElementById("arSalesAmount").value) || 0;
+    const deposit = parseFloat(document.getElementById("arDeposit").value) || 0;
+    const thisRec = parseFloat(document.getElementById("arReceiveAmount").value) || 0;
+    const remain = arBaseOrder ? (arEditTargetRow > 0 ? (sales - deposit - thisRec) : (arBaseOrder.currentUnpaid - thisRec)) : (sales - deposit - thisRec);
+    document.getElementById("arUnpaidAmount").value = Math.max(0, remain);
+    calcFreight();
+  }
+
+  function updateDriverLogic() {
+    const driver = document.getElementById("arDriver").value;
+    const areaSelect = document.getElementById("arDriverArea");
+    areaSelect.innerHTML = "";
+    if (driver === "大蔡") {
+      areaSelect.innerHTML = '<option value="NORTH_4">新竹以北 (4%)</option><option value="SOUTH_5">苗栗以南 (5%)</option><option value="HUALIEN_7">花蓮 (7%)</option><option value="CUSTOM">手動自訂</option>';
+    } else if (driver === "南倉") {
+      areaSelect.innerHTML = '<option value="TAINAN_5">台南 (5%)</option><option value="OTHER_6">其餘 (6%)</option><option value="CUSTOM">手動自訂</option>';
+    } else {
+      areaSelect.innerHTML = '<option value="CUSTOM">自行輸入運費</option>';
+    }
+    calcFreight();
+  }
+
+  function calcFreight() {
+    const driver = document.getElementById("arDriver").value;
+    const area = document.getElementById("arDriverArea").value;
+    const sales = parseFloat(document.getElementById("arSalesAmount").value) || 0;
+    if (area === "CUSTOM" || driver === "大生") return;
+    const rate = (driver === "大蔡") ? (area === "NORTH_4" ? 0.04 : area === "SOUTH_5" ? 0.05 : 0.07) : (area === "TAINAN_5" ? 0.05 : 0.06);
+    document.getElementById("arFreight").value = Math.round(sales * rate);
+  }
+
+  function submitAR() {
+    const payType = document.getElementById("arPayType").value;
+    if (payType === "應收票據" && (!document.getElementById("arCheckNo").value.trim() || !document.getElementById("arCheckDueDate").value)) {
+      return alert("⚠️ 請填寫完整的票號與到期日！");
+    }
+    const payload = {
+      orderId: document.getElementById("arOrderId").value.trim(),
+      customer: document.getElementById("arCustomer").value.trim(),
+      salesAmount: parseFloat(document.getElementById("arSalesAmount").value) || 0,
+      deposit: parseFloat(document.getElementById("arDeposit").value) || 0,
+      receiveAmount: parseFloat(document.getElementById("arReceiveAmount").value) || 0,
+      unpaidAmount: parseFloat(document.getElementById("arUnpaidAmount").value) || 0,
+      payType: payType, checkNo: document.getElementById("arCheckNo").value.trim(),
+      checkDueDate: document.getElementById("arCheckDueDate").value,
+      receiveDate: document.getElementById("arReceiveDate").value,
+      driver: document.getElementById("arDriver").value,
+      driverArea: document.getElementById("arDriverArea").selectedOptions[0]?.text || "",
+      freight: parseFloat(document.getElementById("arFreight").value) || 0,
+      oldItemFee: parseFloat(document.getElementById("arOldItemFee").value) || 0,
+      keyinUser: document.getElementById("arKeyinUser").value,
+      note: document.getElementById("arNote").value.trim(),
+      isEditSpecificRow: (arEditTargetRow > 0), targetRowIndex: arEditTargetRow
+    };
+    fetch('/api/ar/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if (res.success) {
+          document.getElementById("arForm").reset();
+          document.getElementById("arUnpaidBanner").style.display = "none";
+          document.getElementById("arHistoryBox").style.display = "none";
+          document.getElementById("arOrderId").readOnly = false;
+          document.getElementById("arSalesAmount").readOnly = false;
+          document.getElementById("arDeposit").readOnly = false;
+          arBaseOrder = null; arEditTargetRow = 0;
+        }
+      });
+  }
+
+  // 出納對帳報表中心
+  function loadPrintData() {
+    const start = document.getElementById("printStartDate").value;
+    const end = document.getElementById("printEndDate").value;
+    const driverFilter = document.getElementById("printDriverFilter").value;
+    const container = document.getElementById("printContainer");
+    if (!start || !end) return alert("⚠️ 請選取起迄日期！");
+    container.innerHTML = '<div class="text-center py-4 text-muted">載入報表中...</div>';
+
+    fetch(`/api/print/data?startDate=${start}&endDate=${end}`).then(r => r.json()).then(res => {
+      let list = res.list || [];
+      if (driverFilter !== "ALL") list = list.filter(item => item.driver === driverFilter);
+      if (!list.length) { container.innerHTML = '<div class="text-center py-4 text-muted">此區段內無收款紀錄</div>'; return; }
+
+      let sumCash = 0, sumFreight = 0, sumOld = 0;
+      list.forEach(r => {
+        sumFreight += Number(r.freight) || 0;
+        sumOld += Number(r.oldFee) || 0;
+        if (r.payType === "現金") sumCash += Number(r.received) || 0;
+      });
+      const netCash = sumCash - sumFreight - sumOld;
+      const title = driverFilter === "ALL" ? "全門市" : `司機【${driverFilter}】`;
+
+      let html = `<div class="driver-cash-summary shadow-sm mb-3">
+        <div class="row g-2 text-center align-items-center mb-2">
+          <div class="col-3 border-end"><div>💵 代收現金</div><strong class="fs-6 text-dark">$${sumCash.toLocaleString()}</strong></div>
+          <div class="col-3 border-end"><div>🚚 扣除運費</div><strong class="fs-6 text-danger">-$${sumFreight.toLocaleString()}</strong></div>
+          <div class="col-3 border-end"><div>📦 扣除舊貨</div><strong class="fs-6 text-danger">-$${sumOld.toLocaleString()}</strong></div>
+          <div class="col-3 bg-white p-2 rounded border border-success"><div>💰 本期應繳現金</div><strong class="fs-6 text-success">$${netCash.toLocaleString()}</strong></div>
+        </div>
+      </div>
+      <table class="table table-bordered table-sm text-center align-middle" style="font-size:11px;">
+        <thead class="table-light">
+          <tr><th colspan="11" class="bg-dark text-white py-2" style="font-size:11pt;">🚚 珮藏居 - ${title} 代收現金對帳單 (${start} ~ ${end})</th></tr>
+          <tr><th>單號</th><th>客戶</th><th>收款日</th><th>方式</th><th>實收金額</th><th>司機/倉別</th><th>運費</th><th>舊貨費</th><th>未收餘額</th><th>經辦</th><th>備註</th></tr>
+        </thead><tbody>`;
+      list.forEach(r => {
+        html += `<tr><td>${r.id}</td><td>${r.customer}</td><td>${r.date}</td><td><span class="badge bg-success">${r.payType}</span></td><td class="text-end text-success fw-bold">$${Number(r.received).toLocaleString()}</td><td>${r.driver}<br><small>${r.driverArea}</small></td><td class="text-end text-danger">$${Number(r.freight).toLocaleString()}</td><td class="text-end text-danger">$${Number(r.oldFee).toLocaleString()}</td><td class="text-end text-danger">$${Number(r.unpaid).toLocaleString()}</td><td>${r.user}</td><td class="text-start">${r.note||''}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      container.innerHTML = html;
+    });
+  }
+
+  // AP, AR, 財務載入
   function loadAP() {
+    const fMonth = document.getElementById('ap_filter_month').value;
+    const fStart = document.getElementById('ap_filter_start').value;
+    const fEnd = document.getElementById('ap_filter_end').value;
     fetch('/api/ap/summary').then(r => r.json()).then(res => {
       const tb = document.getElementById('apTableBody'); tb.innerHTML = '';
-      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:15px; color:#64748b;">無應付帳款資料</td></tr>`; return; }
-      res.data.forEach(d => {
-        tb.innerHTML += `<tr><td>${d.inbound_no}</td><td>${d.inbound_date}</td><td>${d.vendor_name}</td><td style="text-align:right;">${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td style="text-align:right; color:#15803d;">${d.paid_amount.toLocaleString()}</td><td style="text-align:right; color:#dc2626; font-weight:bold;">${d.unpaid_amount.toLocaleString()}</td><td style="text-align:center;"><span style="padding:2px 6px; border-radius:4px; font-size:11px; background:${d.status==='已結清'?'#dcfce7; color:#15803d;':'#fee2e2; color:#dc2626;'}">${d.status}</span></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-query" style="padding:2px 6px; font-size:11px;" onclick="openModal('ap', '${d.inbound_no}', '${d.vendor_name}', ${d.unpaid_amount})">登記付款</button></td></tr>`;
+      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">無應付帳款資料</td></tr>`; return; }
+      let filtered = res.data.filter(d => {
+        let dt = d.inbound_date;
+        if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
+        if (fStart && dt && dt < fStart) return false;
+        if (fEnd && dt && dt > fEnd) return false;
+        return true;
+      });
+      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">查無符合條件的應付帳款</td></tr>`; return; }
+      filtered.forEach(d => {
+        tb.innerHTML += `<tr><td>${d.inbound_no}</td><td>${d.inbound_date}</td><td>${d.vendor_name}</td><td class="text-end">$${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td class="text-end text-success">$${d.paid_amount.toLocaleString()}</td><td class="text-end text-danger fw-bold">$${d.unpaid_amount.toLocaleString()}</td><td class="text-center"><span class="badge ${d.status==='已結清'?'bg-success':'bg-danger'}">${d.status}</span></td><td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_name}',${d.unpaid_amount})">登記付款</button></td></tr>`;
       });
     });
   }
+  function resetApFilter() { document.getElementById('ap_filter_month').value = ''; document.getElementById('ap_filter_start').value = ''; document.getElementById('ap_filter_end').value = ''; loadAP(); }
 
   function loadAR() {
+    const fMonth = document.getElementById('ar_filter_month').value;
+    const fStart = document.getElementById('ar_filter_start').value;
+    const fEnd = document.getElementById('ar_filter_end').value;
     fetch('/api/ar/summary').then(r => r.json()).then(res => {
       const tb = document.getElementById('arTableBody'); tb.innerHTML = '';
-      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:15px; color:#64748b;">無應收帳款資料</td></tr>`; return; }
-      res.data.forEach(d => {
-        tb.innerHTML += `<tr><td>${d.do_number}</td><td>${d.delivery_date}</td><td>${d.customer_display}</td><td style="text-align:right;">${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td style="text-align:right; color:#15803d;">${d.collected_amount.toLocaleString()}</td><td style="text-align:right; color:#dc2626; font-weight:bold;">${d.uncollected_amount.toLocaleString()}</td><td style="text-align:center;"><span style="padding:2px 6px; border-radius:4px; font-size:11px; background:${d.status==='已收清'?'#dcfce7; color:#15803d;':'#fee2e2; color:#dc2626;'}">${d.status}</span></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-query" style="padding:2px 6px; font-size:11px;" onclick="openModal('ar', '${d.do_number}', '${d.customer_display}', ${d.uncollected_amount})">登記收款</button></td></tr>`;
+      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">無應收帳款資料</td></tr>`; return; }
+      let filtered = res.data.filter(d => {
+        let dt = d.delivery_date;
+        if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
+        if (fStart && dt && dt < fStart) return false;
+        if (fEnd && dt && dt > fEnd) return false;
+        return true;
+      });
+      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">查無符合條件的應收帳款</td></tr>`; return; }
+      filtered.forEach(d => {
+        tb.innerHTML += `<tr><td>${d.do_number}</td><td>${d.delivery_date}</td><td>${d.customer_display}</td><td class="text-end">$${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td class="text-end text-success">$${d.collected_amount.toLocaleString()}</td><td class="text-end text-danger fw-bold">$${d.uncollected_amount.toLocaleString()}</td><td class="text-center"><span class="badge ${d.status==='已收清'?'bg-success':'bg-danger'}">${d.status}</span></td></tr>`;
       });
     });
   }
+  function resetArFilter() { document.getElementById('ar_filter_month').value = ''; document.getElementById('ar_filter_start').value = ''; document.getElementById('ar_filter_end').value = ''; loadAR(); }
 
   function loadFinance() {
     fetch('/api/finance/summary').then(r => r.json()).then(d => {
@@ -1272,26 +1895,20 @@ MAIN_HTML = """
     document.getElementById('modalAmount').value = amt > 0 ? amt : '';
     document.getElementById('modalDate').valueAsDate = new Date();
     document.getElementById('modalRemarks').value = '';
-    document.getElementById('modalTitle').innerText = type === 'ap' ? '登記應付帳款付款' : '登記應收帳款收款';
     document.getElementById('actionModal').style.display = 'flex';
   }
   function closeModal() { document.getElementById('actionModal').style.display = 'none'; }
 
   function handleModalSubmit(e) {
     e.preventDefault();
-    const type = document.getElementById('modalType').value;
     const payload = {
-      pay_date: document.getElementById('modalDate').value, col_date: document.getElementById('modalDate').value,
-      inbound_no: document.getElementById('modalNo').value, do_number: document.getElementById('modalNo').value,
-      vendor_name: document.getElementById('modalName').value, customer_name: document.getElementById('modalName').value,
-      pay_amount: parseFloat(document.getElementById('modalAmount').value)||0, col_amount: parseFloat(document.getElementById('modalAmount').value)||0,
-      pay_method: document.getElementById('modalMethod').value, col_method: document.getElementById('modalMethod').value,
-      remarks: document.getElementById('modalRemarks').value
+      pay_date: document.getElementById('modalDate').value, inbound_no: document.getElementById('modalNo').value,
+      vendor_name: document.getElementById('modalName').value, pay_amount: parseFloat(document.getElementById('modalAmount').value)||0,
+      pay_method: document.getElementById('modalMethod').value, remarks: document.getElementById('modalRemarks').value
     };
-    const endpoint = type === 'ap' ? '/api/ap/pay' : '/api/ar/collect';
-    fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+    fetch('/api/ap/pay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json()).then(res => {
-        if(res.status === 'success') { alert("✔ 登記成功！"); closeModal(); if(type==='ap') loadAP(); else loadAR(); }
+        if(res.status === 'success') { alert("✔ 付款登記成功！"); closeModal(); loadAP(); }
         else alert("失敗");
       });
   }
