@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = "pezang_grouped_nav_pro_2026"
+app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 
 DB_PATH = (
     "/tmp/database.db"
@@ -510,35 +510,6 @@ def get_inventory():
     conn.close()
     return jsonify([dict(r) for r in rows])
 
-@app.route("/api/inventory/save", methods=["POST"])
-def save_inventory_item():
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    data = request.get_json()
-    try:
-        conn = get_db_connection()
-        conn.execute("""INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(sku) DO UPDATE SET name=?, category=?, cost=?, price=?, stock=?, safety_stock=?, note=?""",
-                     (data.get("sku"), data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
-                      data.get("stock"), data.get("safety_stock"), data.get("note"),
-                      data.get("name"), data.get("category"), data.get("cost"), data.get("price"),
-                      data.get("stock"), data.get("safety_stock"), data.get("note")))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 商品存檔/修改成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
-@app.route("/api/inventory/delete/<string:sku>", methods=["POST"])
-def delete_inventory_item(sku):
-    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
-    try:
-        conn = get_db_connection()
-        conn.execute("DELETE FROM inventory_items WHERE sku = ?", (sku,))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "✔ 商品刪除成功！"})
-    except Exception as e: return jsonify({"success": False, "message": str(e)})
-
 @app.route("/api/inventory/transaction/save", methods=["POST"])
 def save_inventory_transaction():
     if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
@@ -869,7 +840,7 @@ LOGIN_HTML = """
 </head>
 <body>
   <div class="card">
-    <h2>珮藏居傢俱管理系統</h2>
+    <h2>珮藏居傢俱有限公司</h2>
     <p>請輸入授權帳號與密碼進行登入</p>
     <form method="POST">
       <div class="form-group"><label>帳號</label><input type="text" name="username" required></div>
@@ -896,11 +867,11 @@ MAIN_HTML = """
     body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
     .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
     
-    /* 結構化群組分層導覽列 */
+    /* 分群分類導覽列 */
     .nav-header-wrapper { background: #0f172a; border-bottom: 3px solid var(--brand); padding: 10px 20px; }
     .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
     .nav-group-row:last-child { border-bottom: none; }
-    .nav-group-title { color: #f59e0b; font-size: 11.5px; font-weight: 700; min-width: 110px; display: inline-flex; align-items: center; gap: 4px; }
+    .nav-group-title { color: #f59e0b; font-size: 11.5px; font-weight: 700; min-width: 120px; display: inline-flex; align-items: center; gap: 4px; }
     .nav-group-buttons { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
 
     .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; transition: all 0.2s ease; }
@@ -952,7 +923,7 @@ MAIN_HTML = """
     .check-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 12px; margin-top: 10px; }
     .unpaid-alert-card { background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
     .history-card { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-top: 16px; }
-    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .driver-cash-summary { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border: 1.5px solid #10b981; border-radius: 8px; padding: 14px; margin-bottom: 16px; }
     
     .app-view { display: none; } .app-view.active { display: block; }
     
@@ -967,7 +938,7 @@ MAIN_HTML = """
 <body>
 
 <div class="container" id="appContainer">
-  <!-- 結構化分類導覽列 -->
+  <!-- 結構化分類導覽列 (分組整齊排列) -->
   <div class="nav-header-wrapper">
     <div class="nav-group-row">
       <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
