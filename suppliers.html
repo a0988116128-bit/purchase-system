@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>供應商主檔管理 - 珮藏居採購系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card { border: none; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .form-label { font-size: 0.85rem; font-weight: 600; color: #495057; }
+        .table th { background-color: #343a40; color: white; font-weight: 500; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-shop me-2"></i>珮藏居採購系統</a>
+            <a href="/" class="btn btn-outline-light btn-sm px-3"><i class="bi bi-house-door me-1"></i> 返回首頁</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4 mb-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <div class="row g-4">
+            <!-- 新增供應商表單 -->
+            <div class="col-md-4">
+                <div class="card p-4">
+                    <h5 class="fw-bold mb-3 text-primary"><i class="bi bi-building-add me-2"></i>新增供應商</h5>
+                    <form action="/suppliers/add" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">供應商代號</label>
+                            <input type="text" name="supplier_code" class="form-control" placeholder="例如: 328" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">供應商名稱</label>
+                            <input type="text" name="supplier_name" class="form-control" placeholder="例如: 席德瑞思" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">統一編號</label>
+                            <input type="text" name="tax_id" class="form-control" placeholder="統編">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">聯絡人 / 電話</label>
+                            <input type="text" name="contact_info" class="form-control" placeholder="聯絡資訊">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">付款條件</label>
+                            <input type="text" name="payment_terms" class="form-control" placeholder="例如: 月結30天">
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">銀行資訊</label>
+                            <input type="text" name="bank_info" class="form-control" placeholder="銀行帳號">
+                        </div>
+                        <button type="submit" class="btn btn-dark w-100 py-2 fw-bold">儲存供應商</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 供應商列表 -->
+            <div class="col-md-8">
+                <div class="card p-4">
+                    <h5 class="fw-bold mb-3"><i class="bi bi-building me-2"></i>供應商清單</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>代號</th>
+                                    <th>名稱</th>
+                                    <th>統編</th>
+                                    <th>聯絡人</th>
+                                    <th>付款條件</th>
+                                </tr>
+                            </thead>
+                           <thead>
+                                <tr>
+                                    <th>代號</th>
+                                    <th>名稱</th>
+                                    <th>統編</th>
+                                    <th>聯絡人</th>
+                                    <th>付款條件</th>
+                                    <th class="text-center" style="width: 10%;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for s in suppliers %}
+                                <tr>
+                                    <td><strong class="text-dark">{{ s.supplier_code }}</strong></td>
+                                    <td>{{ s.supplier_name }}</td>
+                                    <td>{{ s.tax_id }}</td>
+                                    <td>{{ s.contact_info }}</td>
+                                    <td><span class="badge bg-secondary">{{ s.payment_terms }}</span></td>
+                                    <td class="text-center">
+                                        <form action="/suppliers/delete/{{ s.supplier_code }}" method="POST" style="display:inline;" onsubmit="return confirm('確定要刪除供應商 {{ s.supplier_name }} 嗎？');">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i></button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">目前尚無供應商資料</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>

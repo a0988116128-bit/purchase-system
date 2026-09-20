@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>採購單管理 - 珮藏居採購系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card { border: none; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .table th { background-color: #343a40; color: white; font-weight: 500; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-shop me-2"></i>珮藏居採購系統</a>
+            <a href="/" class="btn btn-outline-light btn-sm px-3"><i class="bi bi-house-door me-1"></i> 返回首頁</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4 mb-5">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h3 class="fw-bold mb-1"><i class="bi bi-file-earmark-text text-success me-2"></i>採購單列表</h3>
+                <p class="text-muted small mb-0">管理所有已開立的採購訂單與金額結算狀況。</p>
+            </div>
+            <a href="/purchase-orders/new" class="btn btn-success px-4 shadow-sm"><i class="bi bi-plus-lg me-1"></i> 建立新採購單</a>
+        </div>
+
+        <div class="card p-4">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>採購編號</th>
+                            <th>訂購日期</th>
+                            <th>採購人員</th>
+                            <th>供應商</th>
+                            <th>幣別</th>
+                            <th>總金額 (Grand Total)</th>
+                            <th>訂金</th>
+                            <th>尾款</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for po in purchase_orders %}
+                        <tr>
+                            <td><strong class="text-dark">{{ po.po_number }}</strong></td>
+                            <td>{{ po.order_date }}</td>
+                            <td><span class="badge bg-secondary">{{ po.purchaser }}</span></td>
+                            <td>{{ po.supplier_name }}</td>
+                            <td>{{ po.currency }}</td>
+                            <td class="text-primary fw-bold">{{ "{:,.2f}".format(po.grand_total) }}</td>
+                            <td>{{ "{:,.2f}".format(po.deposit_amount) }} <span class="text-muted small">({{ po.deposit_pct }}%)</span></td>
+                            <td>{{ "{:,.2f}".format(po.balance_amount) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-5">
+                                <i class="bi bi-inbox fs-2 d-block mb-2"></i>目前尚無採購單記錄，點擊上方按鈕建立第一筆吧！
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>珮藏居採購管理系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; }
+        .navbar { box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .menu-card {
+            border: none;
+            border-radius: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .menu-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-shop me-2"></i>珮藏居採購管理系統</a>
+            <div class="d-flex align-items-center">
+                <span class="text-light me-3 small"><i class="bi bi-person-circle me-1"></i> 歡迎，<strong>{{ user_name }}</strong></span>
+                <a href="/logout" class="btn btn-outline-light btn-sm px-3">登出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="p-4 bg-white rounded-3 shadow-sm border-start border-primary border-4">
+                    <h4 class="fw-bold mb-1">系統作業選單</h4>
+                    <p class="text-muted mb-0 small">請點選下方功能卡片開始進行供應商管理或採購作業。</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- 供應商主檔卡片 -->
+            <div class="col-md-6">
+                <div class="card menu-card shadow-sm h-100 p-4">
+                    <div class="card-body">
+                        <div class="text-primary fs-1 mb-3"><i class="bi bi-building"></i></div>
+                        <h5 class="card-title fw-bold">供應商主檔管理</h5>
+                        <p class="card-text text-muted small">維護供應商基本資料、統一編號、付款條件與銀行帳號設定。</p>
+                        <a href="/suppliers" class="btn btn-primary px-4 mt-2">進入管理</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 採購單管理卡片 -->
+            <div class="col-md-6">
+                <div class="card menu-card shadow-sm h-100 p-4">
+                    <div class="card-body">
+                        <div class="text-success fs-1 mb-3"><i class="bi bi-file-earmark-text"></i></div>
+                        <h5 class="card-title fw-bold">採購單管理與建立</h5>
+                        <p class="card-text text-muted small">開立全新採購單、填寫多筆品項明細、自動計算總金額與訂尾款分期。</p>
+                        <a href="/purchase-orders" class="btn btn-success px-4 mt-2">進入採購單</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
