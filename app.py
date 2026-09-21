@@ -248,6 +248,7 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if request.method == "POST":
+        # 您的登入驗證邏輯維持不變...
         data = request.get_json() if request.is_json else request.form
         uid, pwd = data.get("username") or data.get("user_id"), data.get("password")
         conn = get_db_connection()
@@ -260,8 +261,7 @@ def login_page():
             session["user_id"], session["user_name"], session["user_role"] = user["id"], user["name"], user["role"]
             return jsonify({"success": True, "user": {"username": user["id"], "name": user["name"], "role": user["role"]}}) if request.is_json else redirect(url_for("index"))
         return jsonify({"success": False, "message": "❌ 帳號或密碼錯誤"}) if request.is_json else "登入失敗"
-    return render_template_string(LOGIN_HTML)
-
+    return render_template("login.html")
 @app.route("/logout")
 def logout():
     session.clear()
@@ -1245,11 +1245,6 @@ def edit_supplier(code):
         conn.close()
     except Exception as e: print(e)
     return redirect(url_for("suppliers_page"))
-
-# ==================== 前端樣板 (HTML) ====================
-LOGIN_HTML = """<!DOCTYPE html>...</style></head><body>...</body></html>"""
-MAIN_HTML = """<!DOCTYPE html>...</style></head><body>...</body></html>"""
-SUPPLIERS_HTML = """<!DOCTYPE html>...</style></head><body>...</body></html>"""
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
