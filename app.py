@@ -7,8 +7,6 @@ import psycopg2.extras
 app = Flask(__name__)
 app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 
-# 設定你的 Supabase PostgreSQL 雲端資料庫連線字串 (Session Pooler)
-# 請將 你的真實密碼 替換為你的 Supabase 資料庫真實密碼
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
     "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
@@ -25,7 +23,6 @@ def init_db():
 
         cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT)")
         
-        # 供應商資料表擴充：電話、傳真、Email、地址
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS suppliers (
                 supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, 
@@ -40,7 +37,15 @@ def init_db():
         """)
         
         cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id SERIAL PRIMARY KEY, warehouse_name TEXT UNIQUE NOT NULL)")
-        cursor.execute("CREATE TABLE IF NOT EXISTS inventory_items (sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, safety_stock INTEGER DEFAULT 0, note TEXT)")
+        
+        # 確保庫存商品資料表完整
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_items (
+                sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, 
+                cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, 
+                safety_stock INTEGER DEFAULT 0, note TEXT
+            )
+        """)
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS employees (
@@ -296,6 +301,57 @@ def get_customer(c_id):
     cursor.close()
     conn.close()
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
+
+
+# --- 庫存商品 CRUD API (支援新增與修改) ---
+@app.route("/api/inventory/list")
+def get_inventory():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT sku, name, category, cost, price, stock, safety_stock, note FROM inventory_items ORDER BY sku")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/inventory/save", methods=["POST"])
+def save_inventory_item():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (sku) DO UPDATE 
+            SET name = EXCLUDED.name, 
+                category = EXCLUDED.category, 
+                cost = EXCLUDED.cost, 
+                price = EXCLUDED.price, 
+                stock = EXCLUDED.stock, 
+                safety_stock = EXCLUDED.safety_stock
+        """, (data.get("sku"), data.get("name"), data.get("category"),
+              data.get("cost"), data.get("price"), data.get("stock"),
+              data.get("safety_stock"), data.get("note", "")))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 商品建檔/修改成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/inventory/delete/<string:sku>", methods=["POST"])
+def delete_inventory_item(sku):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM inventory_items WHERE sku = %s", (sku,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 商品刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 
 # --- 客戶建立 CRUD API ---
@@ -615,16 +671,6 @@ def get_delivery(do_no):
     cursor.close()
     conn.close()
     return jsonify({"found": True, "header": res_data, "items": items})
-
-@app.route("/api/inventory/list")
-def get_inventory():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT sku, name, category, cost, price, stock, safety_stock, note FROM inventory_items ORDER BY sku")
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
 
 @app.route("/api/inventory/transaction/save", methods=["POST"])
 def save_inventory_transaction():
@@ -996,7 +1042,7 @@ def get_finance_summary():
     })
 
 
-# --- 供應商管理頁面 (含完整聯絡資訊與搜尋) ---
+# --- 供應商管理頁面 ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
