@@ -270,7 +270,7 @@ def get_warehouses():
     conn.close()
     return jsonify([r["warehouse_name"] for r in rows])
 
-@app.route("/api/vendor/<string:v_id>")
+@purchase_bp.route("/api/vendor/<string:v_id>")
 def get_vendor(v_id):
     conn = get_db_connection()
     cursor = conn.cursor()
