@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>系統登入 - 珮藏居傢俱管理系統</title>
+  <style>
+    body { background: #0f172a; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; margin: 0; }
+    .card { background: #fff; padding: 40px; border-radius: 12px; width: 100%; max-width: 400px; box-shadow: 0 20px 25px rgba(0,0,0,0.3); border-top: 4px solid #c59b27; }
+    h2 { color: #0f172a; margin-bottom: 6px; font-size: 20px; }
+    p { color: #64748b; font-size: 13px; margin-bottom: 24px; }
+    .form-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 12.5px; font-weight: 600; color: #334155; }
+    input { padding: 8px 12px; border: 1px solid #94a3b8; border-radius: 4px; font-size: 14px; outline: none; }
+    button { background: #c59b27; color: #fff; border: none; padding: 10px; width: 100%; font-weight: 700; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>珮藏居傢俱有限公司</h2>
+    <p>請輸入授權帳號與密碼進行登入</p>
+    <form method="POST">
+      <div class="form-group"><label>帳號</label><input type="text" name="username" required></div>
+      <div class="form-group"><label>密碼</label><input type="password" name="password" required></div>
+      <button type="submit">登入系統</button>
+    </form>
+  </div>
+</body>
+</html>
