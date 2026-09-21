@@ -170,23 +170,64 @@ def save_inbound():
         return jsonify({"status": "success"})
     except Exception as e: return jsonify({"status": "error", "message": str(e)})
 
-@purchase_bp.route("/api/inbound/<string:in_no>")
-def get_inbound(in_no):
+# ==================== 供應商建立管理 (對齊客戶建立模組) ====================
+
+@purchase_bp.route("/api/suppliers/list")
+def list_suppliers():
+    if "user_id" not in session: return jsonify([])
     conn = get_db_connection()
     cursor = conn.cursor()
-    # 這裡明確將資料庫欄位對應別名為 vendor_id 與 vendor_name，讓前端能夠順利接收
-    cursor.execute("""
-        SELECT inbound_no, receiver_name, warehouse, po_number as po_no, 
-               inbound_date, month, supplier_code as vendor_id, supplier_name as vendor_name 
-        FROM inbound_orders WHERE inbound_no = %s
-    """, (in_no,))
-    order = cursor.fetchone()
-    if not order:
-        cursor.close()
-        conn.close()
-        return jsonify({"found": False, "message": "找不到進貨單"})
-    cursor.execute("SELECT warehouse, model, product_name as name, specification as size, color, ordered_qty, actual_qty, unit_price, subtotal as total, remarks FROM inbound_items WHERE inbound_no = %s", (in_no,))
-    items = [dict(r) for r in cursor.fetchall()]
+    cursor.execute("SELECT supplier_code, supplier_name, tax_id, phone, payment_terms, address FROM suppliers ORDER BY supplier_code")
+    rows = cursor.fetchall()
     cursor.close()
     conn.close()
-    return jsonify({"found": True, "header": dict(order), "items": items})
+    return jsonify([dict(r) for r in rows])
+
+@purchase_bp.route("/api/suppliers/save", methods=["POST"])
+def save_supplier():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO suppliers (supplier_code, supplier_name, tax_id, phone, payment_terms, address) 
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (supplier_code) DO UPDATE SET 
+                supplier_name = EXCLUDED.supplier_name, 
+                tax_id = EXCLUDED.tax_id, 
+                phone = EXCLUDED.phone, 
+                payment_terms = EXCLUDED.payment_terms, 
+                address = EXCLUDED.address
+        """, (data.get("supplier_code"), data.get("supplier_name"), data.get("tax_id"),
+              data.get("phone"), data.get("payment_terms"), data.get("address")))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 供應商資料儲存成功！"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@purchase_bp.route("/api/suppliers/delete/<string:code>", methods=["POST"])
+def delete_supplier(code):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM suppliers WHERE supplier_code = %s", (code,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 供應商刪除成功！"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@purchase_bp.route("/api/vendor/<string:v_id>")
+def get_vendor(v_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT supplier_name FROM suppliers WHERE supplier_code = %s", (v_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return jsonify({"found": True, "vendor_name": row["supplier_name"]} if row else {"found": False})

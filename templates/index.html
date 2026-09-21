@@ -93,7 +93,8 @@
       <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
       <div class="nav-group-buttons">
         <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
-        <a href="{{ url_for('purchase.suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-truck-field"></i> 供應商管理</a>
+        <!-- 改為內部頁籤按鈕，統一架構 -->
+        <button type="button" class="tab-btn" id="btnTabSupplier" onclick="switchTab('supplier')">📇 供應商建立</button>
       </div>
     </div>
     <div class="nav-group-row">
@@ -389,6 +390,40 @@
       </table>
     </div>
   </div>
+<!-- 6.5 供應商建立系統 (與客戶建立完全一致) -->
+  <div id="supplierView" class="app-view">
+    <div style="padding:22px 30px;">
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">📇 供應商資料建檔與維護（含地址與銀行資訊）</h6>
+        <form id="supplierForm" onsubmit="handleSupplierSave(event)" style="padding:0;">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">供應商代號 *</label><input type="text" id="suppCode" class="form-control form-control-sm" placeholder="例: S001" required></div>
+            <div class="col-3"><label class="form-label">供應商名稱 / 抬頭 *</label><input type="text" id="suppName" class="form-control form-control-sm" placeholder="供應商公司名稱" required></div>
+            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="suppTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
+            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="suppPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">付款條件</label><input type="text" id="suppTerms" class="form-control form-control-sm" value="月結30天"></div>
+            <div class="col-6"><label class="form-label text-primary">供應商地址</label><input type="text" id="suppAddress" class="form-control form-control-sm" placeholder="完整通訊地址"></div>
+            <div class="col-3 d-flex align-items-end gap-1">
+              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存供應商</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetSuppForm()">重設</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📋 供應商主檔清單</h6>
+        <button class="btn-query btn-sm" onclick="loadSuppliers()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>供應商代號</th><th>供應商名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th>供應商地址</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="suppTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
 
   <!-- 7. 進退/銷退單據系統 -->
   <div id="transView" class="app-view">
@@ -2496,6 +2531,70 @@
         else alert("失敗");
       });
   }
-</script>
+</script>// 記得在 switchTab 陣列中加入 'supplier'
+  // 並且在 DOMContentLoaded 內加入 loadSuppliers();
+
+  function loadSuppliers() {
+    fetch('/api/suppliers/list').then(r => r.json()).then(data => {
+      const tb = document.getElementById('suppTableBody'); tb.innerHTML = '';
+      if (!data || !data.length) { tb.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-muted">尚無供應商資料</td></tr>`; return; }
+      data.forEach(s => {
+        tb.innerHTML += `<tr>
+          <td><strong>${s.supplier_code}</strong></td>
+          <td class="text-start">${s.supplier_name}</td>
+          <td>${s.tax_id||'-'}</td>
+          <td>${s.phone||'-'}</td>
+          <td>${s.payment_terms||'月結30天'}</td>
+          <td><span class="text-primary">${s.address||'未填地址'}</span></td>
+          <td class="text-center no-print">
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editSupplier(${JSON.stringify(s)})'>✏️ 修改</button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteSupplier('${s.supplier_code}')">🗑️ 刪除</button>
+          </td>
+        </tr>`;
+      });
+    });
+  }
+
+  function handleSupplierSave(e) {
+    e.preventDefault();
+    const payload = {
+      supplier_code: document.getElementById('suppCode').value.trim(),
+      supplier_name: document.getElementById('suppName').value.trim(),
+      tax_id: document.getElementById('suppTaxId').value.trim(),
+      phone: document.getElementById('suppPhone').value.trim(),
+      payment_terms: document.getElementById('suppTerms').value.trim(),
+      address: document.getElementById('suppAddress').value.trim()
+    };
+    fetch('/api/suppliers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { resetSuppForm(); loadSuppliers(); }
+      });
+  }
+
+  function editSupplier(s) {
+    document.getElementById('suppCode').value = s.supplier_code;
+    document.getElementById('suppCode').readOnly = true;
+    document.getElementById('suppName').value = s.supplier_name;
+    document.getElementById('suppTaxId').value = s.tax_id || '';
+    document.getElementById('suppPhone').value = s.phone || '';
+    document.getElementById('suppTerms').value = s.payment_terms || '月結30天';
+    document.getElementById('suppAddress').value = s.address || '';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  function deleteSupplier(code) {
+    if (confirm(`確定要刪除供應商【${code}】嗎？`)) {
+      fetch(`/api/suppliers/delete/${code}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadSuppliers();
+      });
+    }
+  }
+
+  function resetSuppForm() {
+    document.getElementById('supplierForm').reset();
+    document.getElementById('suppCode').readOnly = false;
+  }
 </body>
 </html>
