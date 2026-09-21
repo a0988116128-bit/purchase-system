@@ -25,7 +25,6 @@ def init_db():
 
         cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT)")
         
-        # 供應商與客戶資料表新增 address (地址) 欄位
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS suppliers (
                 supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, 
@@ -298,7 +297,7 @@ def get_customer(c_id):
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
 
-# --- 客戶建立 CRUD API (支援地址) ---
+# --- 客戶建立 CRUD API ---
 @app.route("/api/customers/list")
 def api_get_customers():
     conn = get_db_connection()
@@ -996,17 +995,21 @@ def get_finance_summary():
     })
 
 
-# --- 供應商管理頁面 (含地址欄位) ---
+# --- 供應商管理頁面 (含搜尋與地址) ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
+    search = request.args.get("search", "").strip()
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM suppliers ORDER BY supplier_code")
+    if search:
+        cursor.execute("SELECT * FROM suppliers WHERE supplier_code ILIKE %s OR supplier_name ILIKE %s ORDER BY supplier_code", (f"%{search}%", f"%{search}%"))
+    else:
+        cursor.execute("SELECT * FROM suppliers ORDER BY supplier_code")
     suppliers_list = cursor.fetchall()
     cursor.close()
     conn.close()
-    return render_template_string(SUPPLIERS_HTML, suppliers=suppliers_list, user_name=session.get("user_name"))
+    return render_template_string(SUPPLIERS_HTML, suppliers=suppliers_list, search_query=search, user_name=session.get("user_name"))
 
 @app.route("/suppliers/add", methods=["POST"])
 def add_supplier():
@@ -1579,7 +1582,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 11. 人事名冊 (HR) -->
+  <!-- 11. 人事名冊 -->
   <div id="hrView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
@@ -1619,7 +1622,7 @@ MAIN_HTML = """
     </div>
   </div>
 
-  <!-- 12. 薪資發放系統 (Payroll) -->
+  <!-- 12. 薪資發放系統 -->
   <div id="payrollView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
@@ -3421,8 +3424,17 @@ SUPPLIERS_HTML = """
             <div class="col-md-8">
                 <div class="card shadow-sm p-4">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4 class="text-secondary mb-0">供應商清單</h4>
-                        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm no-print">列印清單</button>
+                        <h4 class="text-secondary mb-0">供應商清單與查詢</h4>
+                        <div class="d-flex gap-2 no-print">
+                            <form method="GET" action="{{ url_for('suppliers_page') }}" class="d-flex gap-1">
+                                <input type="text" name="search" class="form-control form-control-sm" placeholder="輸入代號或名稱查詢..." value="{{ search_query }}">
+                                <button type="submit" class="btn btn-dark btn-sm">🔍 查詢</button>
+                                {% if search_query %}
+                                <a href="{{ url_for('suppliers_page') }}" class="btn btn-outline-secondary btn-sm">清除</a>
+                                {% endif %}
+                            </form>
+                            <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">列印清單</button>
+                        </div>
                     </div>
                     <table class="table table-hover align-middle">
                         <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>統編</th><th>聯絡人</th><th>付款條件</th><th>地址</th><th class="text-center no-print">操作</th></tr></thead>
