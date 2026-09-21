@@ -16,13 +16,11 @@
     .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
     .nav-group-row:last-child { border-bottom: none; }
     .nav-group-title { color: #f59e0b; font-size: 11.5px; font-weight: 700; min-width: 120px; display: inline-flex; align-items: center; gap: 4px; }
-    .nav-group-buttons { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+    .nav-group-buttons { display: flex !important; gap: 8px !important; flex-wrap: wrap !important; align-items: center !important; flex: 1; }
 
-    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; transition: all 0.2s ease; }
+    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; transition: all 0.2s ease; white-space: nowrap !important; display: inline-flex !important; align-items: center !important; gap: 6px !important; }
     .tab-btn:hover { background: #334155; color: #fff; }
     .tab-btn.active { background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(197, 155, 39, 0.4); }
-    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; }
-    .btn-supplier-link:hover { background: #0369a1; color: #fff; }
 
     .po-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--brand); }
     .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
@@ -93,9 +91,9 @@
       <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
       <div class="nav-group-buttons">
         <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
-       <button type="button" class="tab-btn" id="btnTabSupplier" onclick="switchTab('supplier')">
-    <i class="fa-solid fa-truck-field"></i> 供應商建立
-</button>
+        <button type="button" class="tab-btn" id="btnTabSupplier" onclick="switchTab('supplier')"><i class="fa-solid fa-truck-field"></i> 供應商建立</button>
+      </div>
+    </div>
     <div class="nav-group-row">
       <span class="nav-group-title"><i class="fa-solid fa-boxes-stacked"></i> 採購與進貨：</span>
       <div class="nav-group-buttons">
@@ -141,85 +139,89 @@
     </div>
   </div>
 
-  <!-- 採購單 (PO) 建立與維護檢視區塊 -->
-  <div id="poView" class="app-view" style="display:none;">
+  <!-- 0. 供應商建立視區 -->
+  <div id="supplierView" class="app-view">
     <div style="padding:22px 30px;">
-      <div class="card p-4 mb-4 bg-light border shadow-sm">
-        <h5 class="fw-bold text-primary mb-3">📋 採購單 (PO) 建立與維護</h5>
-        
-        <!-- 第一行：基本單號、採購人員、日期 -->
-        <div class="row g-3 mb-3">
-          <div class="col-md-3">
-            <label class="form-label fw-bold">採購單號 *</label>
-            <input type="text" id="po_no" class="form-control form-control-sm" placeholder="請輸入採購單號" required>
+      <div class="card p-3 mb-4 bg-light border">
+        <h6 class="fw-bold text-primary mb-2">📇 供應商資料建檔與維護</h6>
+        <form id="supplierForm" onsubmit="handleSupplierSave(event)" style="padding:0;">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">供應商代號 *</label><input type="text" id="suppCode" class="form-control form-control-sm" placeholder="例: S001" required></div>
+            <div class="col-3"><label class="form-label">供應商名稱 / 抬頭 *</label><input type="text" id="suppName" class="form-control form-control-sm" placeholder="供應商公司名稱" required></div>
+            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="suppTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
+            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="suppPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
           </div>
-          <div class="col-md-3">
-            <label class="form-label fw-bold">採購人員 *</label>
-            <input type="text" id="buyer_name" class="form-control form-control-sm" value="黃詠甯">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label fw-bold">採購日期 *</label>
-            <input type="date" id="order_date" class="form-control form-control-sm">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label fw-bold">預計交貨日</label>
-            <input type="date" id="delivery_date" class="form-control form-control-sm">
-          </div>
-        </div>
-
-        <!-- 第二行：供應商與幣別資訊 -->
-        <div class="row g-3 mb-3">
-          <div class="col-md-2">
-            <label class="form-label fw-bold">供應商代號</label>
-            <div class="input-group input-group-sm">
-              <input type="text" id="po_vendor_id" class="form-control" placeholder="代號" onblur="fetchVendorNameForPo()">
-              <button class="btn btn-outline-secondary" type="button" onclick="openVendorModal()">🔍</button>
+          <div class="row g-2 mt-2">
+            <div class="col-3"><label class="form-label">付款條件</label><input type="text" id="suppTerms" class="form-control form-control-sm" value="月結30天"></div>
+            <div class="col-6"><label class="form-label text-primary">供應商地址</label><input type="text" id="suppAddress" class="form-control form-control-sm" placeholder="完整通訊地址"></div>
+            <div class="col-3 d-flex align-items-end gap-1">
+              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存供應商</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="resetSuppForm()">重設</button>
             </div>
           </div>
-          <div class="col-md-4">
-            <label class="form-label fw-bold">供應商名稱 *</label>
-            <input type="text" id="po_vendor_name" class="form-control form-control-sm" placeholder="供應商公司名稱" required>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label fw-bold">聯絡人 / 窗口</label>
-            <input type="text" id="po_vendor_contact" class="form-control form-control-sm" placeholder="聯絡人姓名">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label fw-bold">幣別</label>
-            <select id="po_currency" class="form-select form-select-sm">
-              <option value="NTD">NTD (新台幣)</option>
-              <option value="USD">USD (美元)</option>
-              <option value="RMB">RMB (人民幣)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- 第三行：訂金與尾款比例控制 (精簡排版) -->
-        <div class="row g-3 mb-3 align-items-end border-top pt-3">
-          <div class="col-md-2">
-            <label class="form-label fw-bold text-muted">訂金比例 (%)</label>
-            <input type="number" id="po_dep_pct" class="form-control form-control-sm" value="30" oninput="calculatePoTotals()">
-          </div>
-          <div class="col-md-2">
-            <label class="form-label fw-bold text-muted">訂金金額</label>
-            <input type="text" id="po_dep_amt" class="form-control form-control-sm bg-white" readonly>
-          </div>
-          <div class="col-md-2">
-            <label class="form-label fw-bold text-muted">尾款比例 (%)</label>
-            <input type="number" id="po_bal_pct" class="form-control form-control-sm" value="70" oninput="calculatePoTotals()">
-          </div>
-          <div class="col-md-2">
-            <label class="form-label fw-bold text-muted">尾款金額</label>
-            <input type="text" id="po_bal_amt" class="form-control form-control-sm bg-white" readonly>
-          </div>
-          <div class="col-md-4 text-end">
-            <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" onclick="savePo()">💾 儲存採購單</button>
-            <button type="button" class="btn btn-secondary btn-sm px-3" onclick="resetPoForm()">重設</button>
-          </div>
-        </div>
-
+        </form>
       </div>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-dark mb-0">📋 供應商主檔清單</h6>
+        <button class="btn-query btn-sm" onclick="loadSuppliers()">🔄 重新整理</button>
+      </div>
+      <table class="items-table">
+        <thead><tr><th>供應商代號</th><th>供應商名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th>供應商地址</th><th class="no-print text-center">操作</th></tr></thead>
+        <tbody id="suppTableBody"></tbody>
+      </table>
     </div>
+  </div>
+
+  <!-- 1. 採購單 (PO) 建立與維護檢視區塊 -->
+  <div id="purchaseView" class="app-view active">
+    <form id="purchaseForm" onsubmit="handlePoSubmit(event)">
+      <div class="section-block">
+        <div class="section-title">一、 採購單基本資料與幣別設定</div>
+        <div class="grid-3">
+          <div class="form-group"><label class="required">採購人員</label><input type="text" id="po_buyer_name" value="{{ user_name }}" required></div>
+          <div class="form-group"><label class="required">採購單號</label><div style="display:flex; gap:6px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">採購日期</label><input type="date" id="po_order_date" required></div>
+        </div>
+        <div class="grid-3" style="margin-top:12px;">
+          <div class="form-group"><label class="required">預計交貨日</label><input type="date" id="po_delivery_date" required></div>
+          <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="國內廠商" selected>國內廠商</option><option value="國外廠商">國外廠商</option></select></div>
+          <div class="form-group">
+            <label class="required">供應商代號</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="po_vendor_id" onblur="lookupVendorName('po')" placeholder="輸入代號" style="flex:1;" required>
+              <button type="button" class="btn-query" onclick="lookupVendorName('po')">帶入</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid-3" style="margin-top:12px;">
+          <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" class="readonly" readonly required></div>
+          <div class="form-group"><label>聯絡人 / 窗口</label><input type="text" id="po_vendor_contact"></div>
+          <div class="form-group"><label class="required">幣別</label><select id="po_currency" onchange="calculatePoTotals()" required><option value="NTD" selected>NTD</option><option value="USD">USD</option><option value="RMB">RMB</option></select></div>
+        </div>
+      </div>
+      <div class="section-block">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細 (輸入型號自動帶出規格與顏色)</div>
+          <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
+        </div>
+        <table class="items-table">
+          <thead><tr><th style="width:14%;">型號</th><th style="width:20%;">品名</th><th style="width:13%;">規格</th><th style="width:13%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:14%;">金額</th><th style="width:8%;" class="no-print">操作</th></tr></thead>
+          <tbody id="poItemsBody"></tbody>
+          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總採購金額 (<span id="poCurrencyLabel">NTD</span>)：</td><td colspan="2" style="font-weight:bold;"><span id="poGrandTotalText">0.00</span></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="section-block">
+        <div class="section-title">三、 訂金與付款條件設定</div>
+        <div class="grid-2">
+          <div class="form-group"><label>訂金比例 (%)</label><input type="number" id="po_dep_pct" value="30" oninput="calculatePoTotals()"></div>
+          <div class="form-group"><label>預付訂金金額</label><input type="text" id="po_dep_amt" class="readonly" readonly></div>
+        </div>
+        <div class="grid-2" style="margin-top:12px;">
+          <div class="form-group"><label>尾款比例 (%)</label><input type="number" id="po_bal_pct" value="70" class="readonly" readonly></div>
+          <div class="form-group"><label>尾款金額</label><input type="text" id="po_bal_amt" class="readonly" readonly></div>
+        </div>
+      </div>
+    </form>
   </div>
 
   <!-- 2. 進貨驗收系統 -->
@@ -236,7 +238,7 @@
           <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
           <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
           <div class="form-group">
-            <label class="required">廠商編號</label>
+            <label class="required">供應商編號</label>
             <div style="display:flex; gap:6px;">
               <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號" style="flex:1;" required>
               <button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button>
@@ -1027,7 +1029,7 @@
       return;
     }
 
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'supplier', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
@@ -1035,6 +1037,7 @@
     });
     if (tab === 'inventory') loadInventory();
     else if (tab === 'customer') loadCustomers();
+    else if (tab === 'supplier') loadSuppliers();
     else if (tab === 'trans') prepareTransForm();
     else if (tab === 'salesPerf') loadSalesPerformance();
     else if (tab === 'creditCard') loadCreditCardTxns();
@@ -1084,6 +1087,7 @@
     else if (currentTab === 'apPro') document.getElementById('apForm').requestSubmit();
     else if (currentTab === 'inventory') document.getElementById('inventoryForm').requestSubmit();
     else if (currentTab === 'customer') document.getElementById('customerForm').requestSubmit();
+    else if (currentTab === 'supplier') document.getElementById('supplierForm').requestSubmit();
     else if (currentTab === 'salesPerf') document.getElementById('salesPerfForm').requestSubmit();
     else if (currentTab === 'creditCard') document.getElementById('ccForm').requestSubmit();
     else if (currentTab === 'invoice') document.getElementById('invoiceForm').requestSubmit();
@@ -1101,6 +1105,70 @@
     let opts = '<option value="" disabled selected hidden>倉庫</option>';
     warehouseOptionsList.forEach(w => { opts += `<option value="${w}" ${w === selWh ? 'selected' : ''}>${w}</option>`; });
     return opts;
+  }
+
+  // 供應商建立管理
+  function loadSuppliers() {
+    fetch('/api/suppliers/list').then(r => r.json()).then(data => {
+      const tb = document.getElementById('suppTableBody'); tb.innerHTML = '';
+      if (!data || !data.length) { tb.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-muted">尚無供應商資料</td></tr>`; return; }
+      data.forEach(s => {
+        tb.innerHTML += `<tr>
+          <td><strong>${s.supplier_code}</strong></td>
+          <td class="text-start">${s.supplier_name}</td>
+          <td>${s.tax_id||'-'}</td>
+          <td>${s.phone||'-'}</td>
+          <td>${s.payment_terms||'月結30天'}</td>
+          <td><span class="text-primary">${s.address||'未填地址'}</span></td>
+          <td class="text-center no-print">
+            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editSupplier(${JSON.stringify(s)})'>✏️ 修改</button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteSupplier('${s.supplier_code}')">🗑️ 刪除</button>
+          </td>
+        </tr>`;
+      });
+    });
+  }
+
+  function handleSupplierSave(e) {
+    e.preventDefault();
+    const payload = {
+      supplier_code: document.getElementById('suppCode').value.trim(),
+      supplier_name: document.getElementById('suppName').value.trim(),
+      tax_id: document.getElementById('suppTaxId').value.trim(),
+      phone: document.getElementById('suppPhone').value.trim(),
+      payment_terms: document.getElementById('suppTerms').value.trim(),
+      address: document.getElementById('suppAddress').value.trim()
+    };
+    fetch('/api/suppliers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+      .then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) { resetSuppForm(); loadSuppliers(); }
+      });
+  }
+
+  function editSupplier(s) {
+    document.getElementById('suppCode').value = s.supplier_code;
+    document.getElementById('suppCode').readOnly = true;
+    document.getElementById('suppName').value = s.supplier_name;
+    document.getElementById('suppTaxId').value = s.tax_id || '';
+    document.getElementById('suppPhone').value = s.phone || '';
+    document.getElementById('suppTerms').value = s.payment_terms || '月結30天';
+    document.getElementById('suppAddress').value = s.address || '';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  function deleteSupplier(code) {
+    if (confirm(`確定要刪除供應商【${code}】嗎？`)) {
+      fetch(`/api/suppliers/delete/${code}`, {method:'POST'}).then(r => r.json()).then(res => {
+        alert(res.message);
+        if(res.success) loadSuppliers();
+      });
+    }
+  }
+
+  function resetSuppForm() {
+    document.getElementById('supplierForm').reset();
+    document.getElementById('suppCode').readOnly = false;
   }
 
   // 採購單明細
@@ -1174,9 +1242,6 @@
         document.getElementById('po_vendor_contact').value = h.vendor_contact;
         document.getElementById('po_currency').value = h.currency;
         document.getElementById('po_dep_pct').value = h.deposit_pct;
-        document.getElementById('po_shipping_mark').value = h.shipping_mark;
-        document.getElementById('po_packing').value = h.packing;
-        document.getElementById('po_bank_info').value = h.bank_info;
         const tbody = document.getElementById('poItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
           tbody.innerHTML += `<tr><td><input type="text" class="po-model" value="${it.model||''}" onblur="onPoModelBlur(this)"></td><td><input type="text" class="po-name" value="${it.name||''}"></td><td><input type="text" class="po-size" value="${it.size||''}"></td><td><input type="text" class="po-color" value="${it.color||''}"></td><td><input type="number" class="po-qty input-qty" value="${it.qty||''}" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" value="${it.unit_price||''}" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
@@ -1208,8 +1273,7 @@
       vendor_contact: document.getElementById('po_vendor_contact').value, currency: document.getElementById('po_currency').value,
       items: items, grand_total: gt, dep_pct: document.getElementById('po_dep_pct').value,
       dep_amt: document.getElementById('po_dep_amt').value, bal_pct: document.getElementById('po_bal_pct').value,
-      bal_amt: document.getElementById('po_bal_amt').value, shipping_mark: document.getElementById('po_shipping_mark').value,
-      packing: document.getElementById('po_packing').value, bank_info: document.getElementById('po_bank_info').value
+      bal_amt: document.getElementById('po_bal_amt').value
     };
     fetch('/api/po/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 採購單儲存成功！' : '✖ 失敗：' + res.message));
@@ -1388,7 +1452,7 @@
     });
   }
 
-  // 銷貨出貨 (支援區域運費%、雜費抵扣與淨現金計算)
+  // 銷貨出貨
   function importFromSo() {
     const soNo = document.getElementById('do_so_no').value.trim();
     if (!soNo) return alert("請輸入客戶訂單編號 (SO)");
@@ -1507,7 +1571,7 @@
     });
   }
 
-  // 庫存規格與顏色管理
+  // 庫存管理
   function loadInventory() {
     fetch('/api/inventory/list').then(r => r.json()).then(data => {
       cachedInventory = data || [];
@@ -1590,7 +1654,7 @@
     document.getElementById('invSku').readOnly = false;
   }
 
-  // 客戶建立管理
+  // 客戶管理
   function loadCustomers() {
     fetch('/api/customers/list').then(r => r.json()).then(data => {
       cachedCustomers = data || [];
@@ -1777,7 +1841,7 @@
     document.getElementById('perfSubmitBtn').innerText = "💾 計算並儲存業績";
   }
 
-  // 信用卡刷卡與退刷管理
+  // 信用卡
   function loadCreditCardTxns() {
     fetch('/api/creditcard/list').then(r => r.json()).then(data => {
       const tb = document.getElementById('ccTableBody'); tb.innerHTML = '';
@@ -2053,7 +2117,7 @@
     }
   }
 
-  // 專業應付帳款管理 (AP Pro)
+  // AP Pro
   function searchAPPro() {
     const id = document.getElementById("apSearchId").value.trim().toUpperCase();
     if (!id) return alert("請輸入進貨單號！");
@@ -2125,7 +2189,7 @@
       });
   }
 
-  // 專業應收帳款 (AR Pro)
+  // AR Pro
   function toggleARCheckFields() {
     const type = document.getElementById("arPayType").value;
     document.getElementById("boxARCheck").style.display = (type === "應收票據") ? "block" : "none";
@@ -2333,7 +2397,7 @@
     });
   }
 
-  // AP, AR, 財務載入 (支援廠商代號與名稱模糊搜尋)
+  // AP, AR, 財務載入
   function loadAP() {
     const fInput = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
     const fMonth = document.getElementById('ap_filter_month').value;
@@ -2416,7 +2480,7 @@
 
   function resetArFilter() { document.getElementById('ar_filter_customer').value = ''; document.getElementById('ar_filter_month').value = ''; document.getElementById('ar_filter_start').value = ''; document.getElementById('ar_filter_end').value = ''; loadAR(); }
 
-  // 傳票與財務報表管理
+  // 傳票
   function addVoucherItemRow() {
     const tbody = document.getElementById('vItemsBody');
     const tr = document.createElement('tr');
@@ -2524,3 +2588,4 @@
 </script>
 </body>
 </html>
+          
