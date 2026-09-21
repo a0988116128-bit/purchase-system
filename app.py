@@ -25,10 +25,11 @@ def init_db():
 
         cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT)")
         
+        # 供應商資料表擴充：電話、傳真、Email、地址
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS suppliers (
                 supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, 
-                contact_info TEXT, payment_terms TEXT, bank_info TEXT, address TEXT
+                contact_info TEXT, phone TEXT, fax TEXT, email TEXT, payment_terms TEXT, bank_info TEXT, address TEXT
             )
         """)
         cursor.execute("""
@@ -995,7 +996,7 @@ def get_finance_summary():
     })
 
 
-# --- 供應商管理頁面 (含搜尋與地址) ---
+# --- 供應商管理頁面 (含完整聯絡資訊與搜尋) ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
@@ -1003,7 +1004,7 @@ def suppliers_page():
     conn = get_db_connection()
     cursor = conn.cursor()
     if search:
-        cursor.execute("SELECT * FROM suppliers WHERE supplier_code ILIKE %s OR supplier_name ILIKE %s ORDER BY supplier_code", (f"%{search}%", f"%{search}%"))
+        cursor.execute("SELECT * FROM suppliers WHERE supplier_code ILIKE %s OR supplier_name ILIKE %s OR phone ILIKE %s OR email ILIKE %s ORDER BY supplier_code", (f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"))
     else:
         cursor.execute("SELECT * FROM suppliers ORDER BY supplier_code")
     suppliers_list = cursor.fetchall()
@@ -1016,9 +1017,10 @@ def add_supplier():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO suppliers (supplier_code, supplier_name, tax_id, contact_info, payment_terms, bank_info, address) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        cursor.execute("INSERT INTO suppliers (supplier_code, supplier_name, tax_id, contact_info, phone, fax, email, payment_terms, bank_info, address) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (request.form["supplier_code"], request.form["supplier_name"], request.form["tax_id"],
-             request.form["contact_info"], request.form["payment_terms"], request.form["bank_info"], request.form["address"]))
+             request.form["contact_info"], request.form["phone"], request.form["fax"], request.form["email"], 
+             request.form["payment_terms"], request.form["bank_info"], request.form["address"]))
         conn.commit()
         cursor.close()
         conn.close()
@@ -1030,9 +1032,10 @@ def edit_supplier(code):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE suppliers SET supplier_name=%s, tax_id=%s, contact_info=%s, payment_terms=%s, bank_info=%s, address=%s WHERE supplier_code=%s",
+        cursor.execute("UPDATE suppliers SET supplier_name=%s, tax_id=%s, contact_info=%s, phone=%s, fax=%s, email=%s, payment_terms=%s, bank_info=%s, address=%s WHERE supplier_code=%s",
             (request.form["supplier_name"], request.form["tax_id"], request.form["contact_info"],
-             request.form["payment_terms"], request.form["bank_info"], request.form["address"], code))
+             request.form["phone"], request.form["fax"], request.form["email"], request.form["payment_terms"], 
+             request.form["bank_info"], request.form["address"], code))
         conn.commit()
         cursor.close()
         conn.close()
@@ -3408,15 +3411,18 @@ SUPPLIERS_HTML = """
         <div class="row">
             <div class="col-md-4 mb-4">
                 <div class="card shadow-sm p-4">
-                    <h4 class="mb-3 text-primary"><i class="fa-solid fa-user-plus me-2"></i>新增供應商 (含地址)</h4>
+                    <h4 class="mb-3 text-primary"><i class="fa-solid fa-user-plus me-2"></i>新增供應商 (完整聯絡資訊)</h4>
                     <form action="{{ url_for('add_supplier') }}" method="POST">
-                        <div class="mb-2"><label class="form-label">供應商代號</label><input type="text" class="form-control" name="supplier_code" required></div>
-                        <div class="mb-2"><label class="form-label">供應商名稱</label><input type="text" class="form-control" name="supplier_name" required></div>
+                        <div class="mb-2"><label class="form-label">供應商代號 *</label><input type="text" class="form-control" name="supplier_code" required></div>
+                        <div class="mb-2"><label class="form-label">供應商名稱 *</label><input type="text" class="form-control" name="supplier_name" required></div>
                         <div class="mb-2"><label class="form-label">統一編號</label><input type="text" class="form-control" name="tax_id"></div>
                         <div class="mb-2"><label class="form-label">聯絡人</label><input type="text" class="form-control" name="contact_info"></div>
+                        <div class="mb-2"><label class="form-label">聯絡電話</label><input type="text" class="form-control" name="phone" placeholder="電話號碼"></div>
+                        <div class="mb-2"><label class="form-label">傳真號碼</label><input type="text" class="form-control" name="fax" placeholder="傳真號碼"></div>
+                        <div class="mb-2"><label class="form-label">電子信箱 (E-mail)</label><input type="email" class="form-control" name="email" placeholder="example@email.com"></div>
                         <div class="mb-2"><label class="form-label">付款條件</label><input type="text" class="form-control" name="payment_terms" value="月結30天"></div>
-                        <div class="mb-2"><label class="form-label">銀行資訊</label><input type="text" class="form-control" name="bank_info"></div>
-                        <div class="mb-3"><label class="form-label text-primary">供應商地址</label><input type="text" class="form-control" name="address" placeholder="公司地址"></div>
+                        <div class="mb-2"><label class="form-label">銀行資訊</label><input type="text" class="form-control" name="bank_info" placeholder="銀行帳號/戶名"></div>
+                        <div class="mb-3"><label class="form-label text-primary">公司地址</label><input type="text" class="form-control" name="address" placeholder="完整通訊地址"></div>
                         <button type="submit" class="btn btn-dark w-100">儲存供應商</button>
                     </form>
                 </div>
@@ -3427,7 +3433,7 @@ SUPPLIERS_HTML = """
                         <h4 class="text-secondary mb-0">供應商清單與查詢</h4>
                         <div class="d-flex gap-2 no-print">
                             <form method="GET" action="{{ url_for('suppliers_page') }}" class="d-flex gap-1">
-                                <input type="text" name="search" class="form-control form-control-sm" placeholder="輸入代號或名稱查詢..." value="{{ search_query }}">
+                                <input type="text" name="search" class="form-control form-control-sm" placeholder="代號/名稱/電話/Email..." value="{{ search_query }}">
                                 <button type="submit" class="btn btn-dark btn-sm">🔍 查詢</button>
                                 {% if search_query %}
                                 <a href="{{ url_for('suppliers_page') }}" class="btn btn-outline-secondary btn-sm">清除</a>
@@ -3436,27 +3442,37 @@ SUPPLIERS_HTML = """
                             <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">列印清單</button>
                         </div>
                     </div>
-                    <table class="table table-hover align-middle">
-                        <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>統編</th><th>聯絡人</th><th>付款條件</th><th>地址</th><th class="text-center no-print">操作</th></tr></thead>
-                        <tbody>
-                            {% for s in suppliers %}
-                            <tr>
-                                <td>{{ s.supplier_code }}</td><td><strong>{{ s.supplier_name }}</strong></td><td>{{ s.tax_id or '-' }}</td><td>{{ s.contact_info or '-' }}</td><td>{{ s.payment_terms or '-' }}</td><td>{{ s.address or '-' }}</td>
-                                <td class="text-center no-print"><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ s.supplier_code }}"><i class="fa-solid fa-pen-to-square"></i></button></td>
-                            </tr>
-                            <div class="modal fade" id="editModal{{ s.supplier_code }}" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-dark text-white"><h5 class="modal-title">修改供應商</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-                            <form action="{{ url_for('edit_supplier', code=s.supplier_code) }}" method="POST"><div class="modal-body">
-                                <div class="mb-2"><label>代號 (不可改)</label><input type="text" class="form-control" value="{{ s.supplier_code }}" disabled></div>
-                                <div class="mb-2"><label>名稱</label><input type="text" class="form-control" name="supplier_name" value="{{ s.supplier_name }}" required></div>
-                                <div class="mb-2"><label>統編</label><input type="text" class="form-control" name="tax_id" value="{{ s.tax_id or '' }}"></div>
-                                <div class="mb-2"><label>聯絡人</label><input type="text" class="form-control" name="contact_info" value="{{ s.contact_info or '' }}"></div>
-                                <div class="mb-2"><label>付款條件</label><input type="text" class="form-control" name="payment_terms" value="{{ s.payment_terms or '' }}"></div>
-                                <div class="mb-2"><label>銀行</label><input type="text" class="form-control" name="bank_info" value="{{ s.bank_info or '' }}"></div>
-                                <div class="mb-2"><label>地址</label><input type="text" class="form-control" name="address" value="{{ s.address or '' }}"></div>
-                            </div><div class="modal-footer"><button type="submit" class="btn btn-primary btn-sm">儲存變更</button></div></form></div></div></div>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle" style="font-size:12px;">
+                            <thead class="table-dark"><tr><th>代號/名稱</th><th>統編/聯絡人</th><th>電話 / 傳真</th><th>E-mail</th><th>付款條件</th><th>地址</th><th class="text-center no-print">操作</th></tr></thead>
+                            <tbody>
+                                {% for s in suppliers %}
+                                <tr>
+                                    <td><strong>{{ s.supplier_code }}</strong><br>{{ s.supplier_name }}</td>
+                                    <td>{{ s.tax_id or '-' }}<br><span class="text-muted">{{ s.contact_info or '-' }}</span></td>
+                                    <td>📞 {{ s.phone or '-' }}<br>📠 {{ s.fax or '-' }}</td>
+                                    <td><a href="mailto:{{ s.email }}">{{ s.email or '-' }}</a></td>
+                                    <td>{{ s.payment_terms or '-' }}</td>
+                                    <td>{{ s.address or '-' }}</td>
+                                    <td class="text-center no-print"><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ s.supplier_code }}"><i class="fa-solid fa-pen-to-square"></i></button></td>
+                                </tr>
+                                <div class="modal fade" id="editModal{{ s.supplier_code }}" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-dark text-white"><h5 class="modal-title">修改供應商</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+                                <form action="{{ url_for('edit_supplier', code=s.supplier_code) }}" method="POST"><div class="modal-body">
+                                    <div class="mb-2"><label>代號 (不可改)</label><input type="text" class="form-control" value="{{ s.supplier_code }}" disabled></div>
+                                    <div class="mb-2"><label>名稱</label><input type="text" class="form-control" name="supplier_name" value="{{ s.supplier_name }}" required></div>
+                                    <div class="mb-2"><label>統編</label><input type="text" class="form-control" name="tax_id" value="{{ s.tax_id or '' }}"></div>
+                                    <div class="mb-2"><label>聯絡人</label><input type="text" class="form-control" name="contact_info" value="{{ s.contact_info or '' }}"></div>
+                                    <div class="mb-2"><label>聯絡電話</label><input type="text" class="form-control" name="phone" value="{{ s.phone or '' }}"></div>
+                                    <div class="mb-2"><label>傳真號碼</label><input type="text" class="form-control" name="fax" value="{{ s.fax or '' }}"></div>
+                                    <div class="mb-2"><label>電子信箱</label><input type="email" class="form-control" name="email" value="{{ s.email or '' }}"></div>
+                                    <div class="mb-2"><label>付款條件</label><input type="text" class="form-control" name="payment_terms" value="{{ s.payment_terms or '' }}"></div>
+                                    <div class="mb-2"><label>銀行</label><input type="text" class="form-control" name="bank_info" value="{{ s.bank_info or '' }}"></div>
+                                    <div class="mb-2"><label>地址</label><input type="text" class="form-control" name="address" value="{{ s.address or '' }}"></div>
+                                </div><div class="modal-footer"><button type="submit" class="btn btn-primary btn-sm">儲存變更</button></div></form></div></div></div>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
