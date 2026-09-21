@@ -1,5 +1,5 @@
 import os
-import psycopg2
+import psycopg as psycopg2
 import psycopg2.extras
 
 DATABASE_URL = os.environ.get(
