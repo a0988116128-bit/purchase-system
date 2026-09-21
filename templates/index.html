@@ -1194,8 +1194,10 @@
     if (!poNo) return alert("請輸入採購編號");
     fetch(`/api/po/${poNo}`).then(r => r.json()).then(res => {
       if (res.found) {
-        document.getElementById('in_vendor_id').value = res.header.supplier_code;
-        document.getElementById('in_vendor_name').value = res.header.supplier_name;
+        // 關鍵修正：這裡必須明確把採購單的供應商代號抓出來填入欄位
+        document.getElementById('in_vendor_id').value = res.header.supplier_code || res.header.vendor_id || '';
+        document.getElementById('in_vendor_name').value = res.header.supplier_name || '';
+        
         const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
           tbody.innerHTML += `<tr><td><input type="text" class="in-model readonly" value="${it.model}" readonly></td><td><input type="text" class="in-name readonly" value="${it.name}" readonly></td><td><input type="text" class="in-size readonly" value="${it.size}" readonly></td><td><input type="text" class="in-color readonly" value="${it.color}" readonly></td><td><select class="in-wh">${generateWarehouseSelectOptions('八里倉')}</select></td><td><input type="text" class="in-ordered readonly" value="${it.qty}" readonly style="text-align:center;"></td><td><input type="number" class="in-actual input-qty" value="${it.qty}" min="0" oninput="calculateInTotals()" required></td><td><input type="text" class="in-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="in-total readonly input-total" readonly></td></tr><tr><td colspan="9" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
@@ -1205,7 +1207,6 @@
       } else alert("找不到採購單");
     });
   }
-
   function calculateInTotals() {
     let gt = 0;
     document.querySelectorAll('#inItemsBody tr:not(:nth-child(even))').forEach(r => {
@@ -1248,8 +1249,11 @@
         document.getElementById('in_date').value = h.inbound_date;
         document.getElementById('in_month').value = h.month;
         document.getElementById('in_po_no').value = h.po_number;
-        document.getElementById('in_vendor_id').value = h.supplier_code;
-        document.getElementById('in_vendor_name').value = h.supplier_name;
+        
+        // 關鍵修正：確保這裡有確實把代號填進去
+        document.getElementById('in_vendor_id').value = h.supplier_code || h.vendor_id || '';
+        document.getElementById('in_vendor_name').value = h.supplier_name || '';
+        
         const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
           tbody.innerHTML += `<tr><td><input type="text" class="in-model readonly" value="${it.model}" readonly></td><td><input type="text" class="in-name readonly" value="${it.name}" readonly></td><td><input type="text" class="in-size readonly" value="${it.size}" readonly></td><td><input type="text" class="in-color readonly" value="${it.color}" readonly></td><td><select class="in-wh">${generateWarehouseSelectOptions(it.warehouse)}</select></td><td><input type="text" class="in-ordered readonly" value="${it.ordered_qty}" readonly style="text-align:center;"></td><td><input type="number" class="in-actual input-qty" value="${it.actual_qty}" min="0" oninput="calculateInTotals()" required></td><td><input type="text" class="in-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="in-total readonly input-total" readonly></td></tr><tr><td colspan="9" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
