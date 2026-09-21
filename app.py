@@ -2158,24 +2158,12 @@ MAIN_HTML = """
     return opts;
   }
 
-  // 採購單明細 (含規格與顏色，並可從現有庫存快速帶入)
+  // 採購單明細：支援手動輸入型號後自動帶出規格與顏色
   function addPoItemRow() {
     const tbody = document.getElementById('poItemsBody');
     const tr = document.createElement('tr');
-    
-    // 產生現有庫存的下拉選項供快速選擇
-    let invOptions = '<option value="">-- 快速選擇現有庫存 --</option>';
-    cachedInventory.forEach(item => {
-      invOptions += `<option value="${item.sku}" data-name="${item.name||''}" data-spec="${item.spec||''}" data-color="${item.color||''}">${item.sku} - ${item.name} (${item.spec||''}/${item.color||''})</option>`;
-    });
-
     tr.innerHTML = `
-      <td>
-        <select class="form-select form-select-sm po-sku-select mb-1" onchange="onPoSkuChanged(this)">
-          ${invOptions}
-        </select>
-        <input type="text" class="po-model" placeholder="型號">
-      </td>
+      <td><input type="text" class="po-model" placeholder="輸入型號按離開" onblur="onPoModelBlur(this)"></td>
       <td><input type="text" class="po-name" placeholder="品名"></td>
       <td><input type="text" class="po-size" placeholder="規格"></td>
       <td><input type="text" class="po-color" placeholder="顏色"></td>
@@ -2189,6 +2177,27 @@ MAIN_HTML = """
     rTr.innerHTML = `<td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" placeholder="備註..."></td>`;
     tbody.appendChild(rTr);
     calculatePoTotals();
+  }
+
+  // 當「型號」輸入完畢離開 (onblur) 時，自動從已快取的庫存比對並帶出資訊
+  function onPoModelBlur(inputElem) {
+    const skuVal = inputElem.value.trim();
+    if (!skuVal) return;
+    
+    // 從現有的 cachedInventory 中尋找相符的 SKU
+    const found = cachedInventory.find(item => item.sku.toLowerCase() === skuVal.toLowerCase());
+    const row = inputElem.closest('tr');
+    
+    if (found) {
+      row.querySelector('.po-name').value = found.name || '';
+      row.querySelector('.po-size').value = found.spec || '';
+      row.querySelector('.po-color').value = found.color || '';
+      // 如果庫存有預設成本或售價，也可以順便帶入單價（選填）
+      if (found.cost && !row.querySelector('.po-price').value) {
+        row.querySelector('.po-price').value = found.cost;
+        calculatePoTotals();
+      }
+    }
   }
 
   // 當在採購單選擇庫存型號時，自動把規格、顏色、品名帶入欄位
