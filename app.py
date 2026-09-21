@@ -1,6 +1,5 @@
 from datetime import datetime
-from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
-import os
+from flask import Flask, flash, jsonify, redirect, render_template, render_template_string, request, session, url_for
 import re
 import psycopg2
 import psycopg2.extras
@@ -1211,6 +1210,7 @@ def suppliers_page():
     cursor.close()
     conn.close()
     return render_template_string(SUPPLIERS_HTML, suppliers=suppliers_list, user_name=session.get("user_name"))
+from flask import Flask, flash, jsonify, redirect, render_template, render_template_string, request, session, url_for
 
 @app.route("/suppliers/add", methods=["POST"])
 def add_supplier():
