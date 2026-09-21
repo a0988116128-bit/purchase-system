@@ -1,7 +1,6 @@
 import os
-import psycopg as psycopg2
+import psycopg2
 import psycopg2.extras
-
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
     "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
