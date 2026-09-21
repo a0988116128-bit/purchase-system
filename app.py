@@ -10,7 +10,7 @@ app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 # 設定你的 Supabase PostgreSQL 雲端資料庫連線字串 (Session Pooler)
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
-    "postgresql://postgres.gutyrssxtpuxndflkceq:你的真實密碼@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 def get_db_connection():
