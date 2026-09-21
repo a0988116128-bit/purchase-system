@@ -196,7 +196,7 @@
         <div class="card" style="margin-top:16px;">
           <h3>一、進貨基本資料與採購單轉入</h3>
           
-          <!-- 第一行：收貨人員、進貨單號、進貨日期 -->
+         <!-- 第一行：收貨人員、進貨單號、進貨日期 -->
           <div class="grid-3" style="margin-top:12px;">
             <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver" required></div>
             <div class="form-group"><label class="required">進貨單號</label><input type="text" id="in_no" required></div>
@@ -209,28 +209,27 @@
             </div>
           </div>
 
-          <!-- 第二行：歸屬月份、採購編號、廠商編號 -->
+          <!-- 第二行：歸屬月份、採購編號、供應商名稱 (我們把名稱改放到這裡) -->
           <div class="grid-3" style="margin-top:12px;">
             <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
             <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
             <div class="form-group">
-              <label class="required">廠商編號</label>
-              <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號" required>
-            </div>
-          </div>
-
-          <!-- 第三行：供應商名稱與轉入PO按鈕並排 -->
-          <div class="grid-2" style="margin-top:12px;">
-            <div class="form-group">
               <label class="required">供應商名稱</label>
               <input type="text" id="in_vendor_name" class="readonly" readonly required>
             </div>
-            <div class="form-group" style="display:flex; align-items:flex-end;">
+          </div>
+
+          <!-- 第三行：廠商編號與轉入PO按鈕並排 -->
+          <div style="display:flex; gap:12px; margin-top:12px; align-items:flex-end;">
+            <div class="form-group" style="flex: 2;">
+              <label class="required">廠商編號</label>
+              <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號" required>
+            </div>
+            <div class="form-group" style="flex: 1;">
               <button type="button" class="btn-query" onclick="importFromPo()" style="width:100%; height:38px;">📥 轉入PO</button>
             </div>
           </div>
-
-        </div>          <div class="grid-3" style="margin-top:12px;">
+            <div class="grid-3" style="margin-top:12px;">
             <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
             <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
             <div class="form-group">
