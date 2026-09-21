@@ -469,26 +469,36 @@ def save_po():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM purchase_orders WHERE po_number = %s", (po_no,))
         cursor.execute("DELETE FROM purchase_items WHERE po_number = %s", (po_no,))
+        
+        # 安全轉換數值，避免前端傳入空字串 "" 造成資料庫轉型失敗
+        grand_total = float(data.get("grand_total") or 0)
+        dep_pct = float(data.get("dep_pct") or 0)
+        bal_pct = float(data.get("bal_pct") or 100)
+
         cursor.execute("""
             INSERT INTO purchase_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (po_no, data.get("buyer_name"), data.get("order_date"), data.get("delivery_date"),
               data.get("price_term"), data.get("vendor_type"), data.get("vendor_id"), data.get("vendor_name"),
-              data.get("vendor_contact"), data.get("currency"), data.get("grand_total", 0), data.get("dep_pct", 0),
-              str(data.get("dep_amt", "")), data.get("bal_pct", 100), str(data.get("bal_amt", "")),
+              data.get("vendor_contact"), data.get("currency"), grand_total, dep_pct,
+              str(data.get("dep_amt", "")), bal_pct, str(data.get("bal_amt", "")),
               data.get("shipping_mark"), data.get("packing"), data.get("bank_info"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
         for item in data.get("items", []):
+            qty = int(item.get("qty") or 0)
+            unit_price = float(item.get("unit_price") or 0)
+            subtotal = qty * unit_price
             cursor.execute("""
                 INSERT INTO purchase_items (po_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) 
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (po_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                  item.get("qty"), item.get("unit_price"), item.get("total"), item.get("remarks")))
+                  qty, unit_price, subtotal, item.get("remarks")))
+        
         conn.commit()
         cursor.close()
         conn.close()
         return jsonify({"status": "success"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)})
-
-@app.route("/api/po/<string:po_no>")
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)})@app.route("/api/po/<string:po_no>")
 def get_po(po_no):
     conn = get_db_connection()
     cursor = conn.cursor()
