@@ -141,53 +141,85 @@
     </div>
   </div>
 
-  <!-- 1. 採購單系統 -->
-  <div id="purchaseView" class="app-view active">
-    <form id="purchaseForm" onsubmit="handlePoSubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 採購基本資料與查詢修改</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">採購人員</label><input type="text" id="po_buyer_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">訂購日期</label><input type="date" id="po_order_date" required></div>
+  <!-- 採購單 (PO) 建立與維護檢視區塊 -->
+  <div id="poView" class="app-view" style="display:none;">
+    <div style="padding:22px 30px;">
+      <div class="card p-4 mb-4 bg-light border shadow-sm">
+        <h5 class="fw-bold text-primary mb-3">📋 採購單 (PO) 建立與維護</h5>
+        
+        <!-- 第一行：基本單號、採購人員、日期 -->
+        <div class="row g-3 mb-3">
+          <div class="col-md-3">
+            <label class="form-label fw-bold">採購單號 *</label>
+            <input type="text" id="po_no" class="form-control form-control-sm" placeholder="請輸入採購單號" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold">採購人員 *</label>
+            <input type="text" id="buyer_name" class="form-control form-control-sm" value="黃詠甯">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold">採購日期 *</label>
+            <input type="date" id="order_date" class="form-control form-control-sm">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold">預計交貨日</label>
+            <input type="date" id="delivery_date" class="form-control form-control-sm">
+          </div>
         </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">交貨日期</label><input type="date" id="po_delivery_date" required></div>
-          <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
+
+        <!-- 第二行：供應商與幣別資訊 -->
+        <div class="row g-3 mb-3">
+          <div class="col-md-2">
+            <label class="form-label fw-bold">供應商代號</label>
+            <div class="input-group input-group-sm">
+              <input type="text" id="po_vendor_id" class="form-control" placeholder="代號" onblur="fetchVendorNameForPo()">
+              <button class="btn btn-outline-secondary" type="button" onclick="openVendorModal()">🔍</button>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-bold">供應商名稱 *</label>
+            <input type="text" id="po_vendor_name" class="form-control form-control-sm" placeholder="供應商公司名稱" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold">聯絡人 / 窗口</label>
+            <input type="text" id="po_vendor_contact" class="form-control form-control-sm" placeholder="聯絡人姓名">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-bold">幣別</label>
+            <select id="po_currency" class="form-select form-select-sm">
+              <option value="NTD">NTD (新台幣)</option>
+              <option value="USD">USD (美元)</option>
+              <option value="RMB">RMB (人民幣)</option>
+            </select>
+          </div>
         </div>
-        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
-          <div class="form-group"><label>廠商編號</label><input type="text" id="po_vendor_id" onblur="lookupVendorName('po')"></div>
-          <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" required></div>
-          <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
+
+        <!-- 第三行：訂金與尾款比例控制 (精簡排版) -->
+        <div class="row g-3 mb-3 align-items-end border-top pt-3">
+          <div class="col-md-2">
+            <label class="form-label fw-bold text-muted">訂金比例 (%)</label>
+            <input type="number" id="po_dep_pct" class="form-control form-control-sm" value="30" oninput="calculatePoTotals()">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-bold text-muted">訂金金額</label>
+            <input type="text" id="po_dep_amt" class="form-control form-control-sm bg-white" readonly>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-bold text-muted">尾款比例 (%)</label>
+            <input type="number" id="po_bal_pct" class="form-control form-control-sm" value="70" oninput="calculatePoTotals()">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-bold text-muted">尾款金額</label>
+            <input type="text" id="po_bal_amt" class="form-control form-control-sm bg-white" readonly>
+          </div>
+          <div class="col-md-4 text-end">
+            <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" onclick="savePo()">💾 儲存採購單</button>
+            <button type="button" class="btn btn-secondary btn-sm px-3" onclick="resetPoForm()">重設</button>
+          </div>
         </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">幣別</label><select id="po_currency" required onchange="calculatePoTotals()"><option value="NTD" selected>NTD</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="JPY">JPY</option></select></div>
-        </div>
+
       </div>
-      <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細 (輸入型號自動帶出規格顏色)</div>
-          <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
-        </div>
-        <table class="items-table">
-          <thead><tr><th style="width:14%;">型號</th><th style="width:18%;">品名</th><th style="width:12%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
-          <tbody id="poItemsBody"></tbody>
-          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總金額：</td><td colspan="2" style="font-weight:bold;"><span id="poGrandTotalText">0.00</span> <span id="poCurrencyLabel">NTD</span></td></tr></tfoot>
-        </table>
-      </div>
-      <div class="section-block">
-        <div class="section-title">三、 付款與裝運設定</div>
-        <div class="grid-2">
-          <div class="form-group"><label>訂金比例 (%) / 金額</label><div style="display:flex; gap:8px;"><input type="number" id="po_dep_pct" style="width:80px;" oninput="calculatePoTotals()"><input type="text" id="po_dep_amt" class="readonly" readonly style="flex:1;"></div></div>
-          <div class="form-group"><label>尾款比例 (%) / 金額</label><div style="display:flex; gap:8px;"><input type="number" id="po_bal_pct" class="readonly" style="width:80px;" readonly><input type="text" id="po_bal_amt" class="readonly" readonly style="flex:1;"></div></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label>Shipping Mark</label><input type="text" id="po_shipping_mark"></div>
-          <div class="form-group"><label>Packing</label><input type="text" id="po_packing"></div>
-        </div>
-        <div class="form-group" style="margin-top:12px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
-      </div>
-    </form>
+    </div>
   </div>
 
   <!-- 2. 進貨驗收系統 -->
