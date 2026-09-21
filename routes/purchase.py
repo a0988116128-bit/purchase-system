@@ -207,4 +207,4 @@ def get_inbound(in_no):
     items = [dict(r) for r in cursor.fetchall()]
     cursor.close()
     conn.close()
-    return jsonify({"found": True, "header": dict(order), "items": items})"]} if row else {"found": False})
+    return jsonify({"found": True, "header": dict(order), "items": items})"]} if row else {"found": False}
