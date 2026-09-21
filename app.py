@@ -496,7 +496,6 @@ def get_po(po_no):
     cursor.close()
     conn.close()
     return jsonify({"found": True, "header": dict(po), "items": items})
-
 @app.route("/api/inbound/save", methods=["POST"])
 def save_inbound():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -507,40 +506,51 @@ def save_inbound():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM inbound_orders WHERE inbound_no = %s", (in_no,))
         cursor.execute("DELETE FROM inbound_items WHERE inbound_no = %s", (in_no,))
+        
         v_id = data.get("vendor_id", "") or ""
         v_name = data.get("vendor_name", "") or "未命名供應商"
+        
         cursor.execute("INSERT INTO inbound_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (in_no, data.get("receiver_name"), data.get("warehouse", "八里倉"), data.get("po_no"),
              data.get("inbound_date"), data.get("month"), v_id, v_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
         total_amt = 0
         for item in data.get("items", []):
-            sub = item.get("actual_qty", 0) * item.get("unit_price", 0)
+            actual_qty = float(item.get("actual_qty") or 0)
+            unit_price = float(item.get("unit_price") or 0)
+            sub = actual_qty * unit_price
             total_amt += sub
             wh = item.get("warehouse", "八里倉")
+            
             cursor.execute("""
                 INSERT INTO inbound_items (inbound_no, warehouse, model, product_name, specification, color, ordered_qty, actual_qty, unit_price, subtotal, remarks) 
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (in_no, wh, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
-                  item.get("ordered_qty"), item.get("actual_qty"), item.get("unit_price"), sub, item.get("remarks")))
+                  item.get("ordered_qty"), actual_qty, unit_price, sub, item.get("remarks")))
+            
             sku = item.get("model")
             cursor.execute("""
                 INSERT INTO inventory_items (sku, name, category, spec, color, cost, price, stock, safety_stock, note)
                 VALUES (%s, %s, '五金配件', %s, %s, %s, %s, %s, 10, '進貨入庫')
                 ON CONFLICT (sku) DO UPDATE SET stock = inventory_items.stock + EXCLUDED.stock, spec = EXCLUDED.spec, color = EXCLUDED.color
-            """, (sku, item.get("name"), item.get("size"), item.get("color"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty")))
+            """, (sku, item.get("name"), item.get("size"), item.get("color"), unit_price, unit_price * 1.5, actual_qty))
+
+        # 【關鍵修復】確保進貨單儲存時，同步建立應付帳款紀錄供查詢與列印
         v_display = f"{v_id} {v_name}".strip() if v_id else v_name
+        inbound_date = data.get("inbound_date")
         cursor.execute("""
             INSERT INTO ap_invoices (inbound_no, inbound_date, vendor_display, total_amount, payment_term, due_date, status) 
             VALUES (%s, %s, %s, %s, '月結30天', %s, '未付')
             ON CONFLICT (inbound_no) DO UPDATE 
             SET inbound_date = EXCLUDED.inbound_date, vendor_display = EXCLUDED.vendor_display, total_amount = EXCLUDED.total_amount, due_date = EXCLUDED.due_date
-        """, (in_no, data.get("inbound_date"), v_display, total_amt, data.get("inbound_date")))
+        """, (in_no, inbound_date, v_display, total_amt, inbound_date))
+
         conn.commit()
         cursor.close()
         conn.close()
         return jsonify({"status": "success"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)})
-
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)})
 @app.route("/api/inbound/<string:in_no>")
 def get_inbound(in_no):
     conn = get_db_connection()
