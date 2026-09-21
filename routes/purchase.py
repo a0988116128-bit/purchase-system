@@ -174,7 +174,12 @@ def save_inbound():
 def get_inbound(in_no):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM inbound_orders WHERE inbound_no = %s", (in_no,))
+    # 這裡明確將資料庫欄位對應別名為 vendor_id 與 vendor_name，讓前端能夠順利接收
+    cursor.execute("""
+        SELECT inbound_no, receiver_name, warehouse, po_number as po_no, 
+               inbound_date, month, supplier_code as vendor_id, supplier_name as vendor_name 
+        FROM inbound_orders WHERE inbound_no = %s
+    """, (in_no,))
     order = cursor.fetchone()
     if not order:
         cursor.close()
