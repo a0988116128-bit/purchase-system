@@ -457,12 +457,22 @@ def save_po():
         dep_pct = float(data.get("dep_pct") or 0)
         bal_pct = float(data.get("bal_pct") or 100)
 
+        # 處理訂金與尾款金額，確保只抓取純數字，避免帶入 "NTD" 等文字造成資料庫 real 型態錯誤
+        import re
+        def extract_number(val):
+            if not val: return 0.0
+            numbers = re.findall(r"[-+]?\d*\.\d+|\d+", str(val))
+            return float(numbers[0]) if numbers else 0.0
+
+        dep_amount = extract_number(data.get("dep_amt"))
+        bal_amount = extract_number(data.get("bal_amt"))
+
         cursor.execute("""
             INSERT INTO purchase_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (po_no, data.get("buyer_name"), data.get("order_date"), data.get("delivery_date"),
               data.get("vendor_type"), data.get("vendor_id"), data.get("vendor_name"),
               data.get("vendor_contact"), data.get("currency"), grand_total, dep_pct,
-              str(data.get("dep_amt", "")), bal_pct, str(data.get("bal_amt", "")),
+              str(dep_amount), bal_pct, str(bal_amount),
               data.get("shipping_mark"), data.get("packing"), data.get("bank_info"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         
         for item in data.get("items", []):
@@ -479,8 +489,8 @@ def save_po():
         cursor.close()
         conn.close()
         return jsonify({"status": "success"})
-    except Exception as e: return jsonify({"status": "error", "message": str(e)})
-
+    except Exception as e: 
+        return jsonify({"status": "error", "message": str(e)})
 @app.route("/api/po/<string:po_no>")
 def get_po(po_no):
     conn = get_db_connection()
