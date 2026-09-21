@@ -3317,55 +3317,63 @@ MAIN_HTML = """
   }
 
   // AP, AR, 財務載入
-  function loadAP() {
-    const fVendor = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
+function loadAP() {
+    const fInput = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
     const fMonth = document.getElementById('ap_filter_month').value;
     const fStart = document.getElementById('ap_filter_start').value;
     const fEnd = document.getElementById('ap_filter_end').value;
-    fetch('/api/ap/summary').then(r => r.json()).then(res => {
-      const tb = document.getElementById('apTableBody'); tb.innerHTML = '';
-      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">無應付帳款資料</td></tr>`; return; }
-      let filtered = res.data.filter(d => {
-        let dt = d.inbound_date;
-        let vName = d.vendor_name.toLowerCase();
-        if (fVendor && !vName.includes(fVendor)) return false;
-        if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
-        if (fStart && dt && dt < fStart) return false;
-        if (fEnd && dt && dt > fEnd) return false;
-        return true;
-      });
-      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">查無符合條件的應付帳款</td></tr>`; return; }
-      filtered.forEach(d => {
-        tb.innerHTML += `<tr><td>${d.inbound_no}</td><td>${d.inbound_date}</td><td>${d.vendor_name}</td><td class="text-end">$${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td class="text-end text-success">$${d.paid_amount.toLocaleString()}</td><td class="text-end text-danger fw-bold">$${d.unpaid_amount.toLocaleString()}</td><td class="text-center"><span class="badge ${d.status==='已結清'?'bg-success':'bg-danger'}">${d.status}</span></td><td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_name}',${d.unpaid_amount})">登記付款</button></td></tr>`;
-      });
-    });
-  }
-  function resetApFilter() { document.getElementById('ap_filter_vendor').value = ''; document.getElementById('ap_filter_month').value = ''; document.getElementById('ap_filter_start').value = ''; document.getElementById('ap_filter_end').value = ''; loadAP(); }
 
-  function loadAR() {
-    const fCust = document.getElementById('ar_filter_customer').value.trim().toLowerCase();
-    const fMonth = document.getElementById('ar_filter_month').value;
-    const fStart = document.getElementById('ar_filter_start').value;
-    const fEnd = document.getElementById('ar_filter_end').value;
-    fetch('/api/ar/summary').then(r => r.json()).then(res => {
-      const tb = document.getElementById('arTableBody'); tb.innerHTML = '';
-      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">無應收帳款資料</td></tr>`; return; }
+    fetch('/api/ap/summary').then(r => r.json()).then(res => {
+      const tb = document.getElementById('apTableBody'); 
+      if (!tb) return;
+      tb.innerHTML = '';
+      
+      if (!res.data || !res.data.length) { 
+        tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">目前無應付帳款資料</td></tr>`; 
+        return; 
+      }
+
       let filtered = res.data.filter(d => {
-        let dt = d.delivery_date;
-        let cName = d.customer_display.toLowerCase();
-        if (fCust && !cName.includes(fCust)) return false;
+        let dt = d.inbound_date || '';
+        let vDisplay = (d.vendor_name || '').toLowerCase(); // 包含供應商代號與名稱（例如 "013 義興(三川家具行)"）
+        
+        // 只要輸入的關鍵字（如 013 或 義興）符合供應商顯示字串即可
+        if (fInput && !vDisplay.includes(fInput)) return false;
         if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
         if (fStart && dt && dt < fStart) return false;
         if (fEnd && dt && dt > fEnd) return false;
         return true;
       });
-      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">查無符合條件的應收帳款</td></tr>`; return; }
+
+      if (!filtered.length) { 
+        tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">查無符合條件的應付帳款</td></tr>`; 
+        return; 
+      }
+
       filtered.forEach(d => {
-        tb.innerHTML += `<tr><td>${d.do_number}</td><td>${d.delivery_date}</td><td>${d.customer_display}</td><td class="text-end">$${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td class="text-end text-success">$${d.collected_amount.toLocaleString()}</td><td class="text-end text-danger fw-bold">$${d.uncollected_amount.toLocaleString()}</td><td class="text-center"><span class="badge ${d.status==='已收清'?'bg-success':'bg-danger'}">${d.status}</span></td></tr>`;
+        tb.innerHTML += `<tr>
+          <td>${d.inbound_no}</td>
+          <td>${d.inbound_date}</td>
+          <td>${d.vendor_name}</td>
+          <td class="text-end">$${d.total_amount.toLocaleString()}</td>
+          <td>${d.payment_term || '月結30天'}</td>
+          <td>${d.due_date || '-'}</td>
+          <td class="text-end text-success">$${(d.paid_amount || 0).toLocaleString()}</td>
+          <td class="text-end text-danger fw-bold">$${(d.unpaid_amount || 0).toLocaleString()}</td>
+          <td class="text-center"><span class="badge ${d.status==='已結清'?'bg-success':'bg-danger'}">${d.status}</span></td>
+          <td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_name}',${d.unpaid_amount})">登記付款</button></td>
+        </tr>`;
       });
     });
   }
-  function resetArFilter() { document.getElementById('ar_filter_customer').value = ''; document.getElementById('ar_filter_month').value = ''; document.getElementById('ar_filter_start').value = ''; document.getElementById('ar_filter_end').value = ''; loadAR(); }
+
+  function resetApFilter() { 
+    document.getElementById('ap_filter_vendor').value = ''; 
+    document.getElementById('ap_filter_month').value = ''; 
+    document.getElementById('ap_filter_start').value = ''; 
+    document.getElementById('ap_filter_end').value = ''; 
+    loadAP(); 
+  }
 
   // 傳票與財務報表管理
   function addVoucherItemRow() {
