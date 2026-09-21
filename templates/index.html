@@ -1194,9 +1194,12 @@
     if (!poNo) return alert("請輸入採購編號");
     fetch(`/api/po/${poNo}`).then(r => r.json()).then(res => {
       if (res.found) {
-        // 關鍵修正：這裡必須明確把採購單的供應商代號抓出來填入欄位
-        document.getElementById('in_vendor_id').value = res.header.supplier_code || res.header.vendor_id || '';
-        document.getElementById('in_vendor_name').value = res.header.supplier_name || '';
+        // 雙保險：不管是 supplier_code, vendor_id 還是 supplierCode，只要有一個有值就抓進來
+        const vId = res.header.supplier_code || res.header.vendor_id || res.header.supplierCode || '';
+        const vName = res.header.supplier_name || res.header.vendor_name || res.header.supplierName || '';
+        
+        document.getElementById('in_vendor_id').value = vId;
+        document.getElementById('in_vendor_name').value = vName;
         
         const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
