@@ -2158,35 +2158,48 @@ MAIN_HTML = """
     return opts;
   }
 
-  // 採購單明細 (含規格與顏色)
+  // 採購單明細 (含規格與顏色，並可從現有庫存快速帶入)
   function addPoItemRow() {
     const tbody = document.getElementById('poItemsBody');
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><input type="text" class="po-model" placeholder="型號"></td><td><input type="text" class="po-name" placeholder="品名"></td><td><input type="text" class="po-size" placeholder="規格"></td><td><input type="text" class="po-color" placeholder="顏色"></td><td><input type="number" class="po-qty input-qty" min="0" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" step="0.01" min="0" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td>`;
+    
+    // 產生現有庫存的下拉選項供快速選擇
+    let invOptions = '<option value="">-- 快速選擇現有庫存 --</option>';
+    cachedInventory.forEach(item => {
+      invOptions += `<option value="${item.sku}" data-name="${item.name||''}" data-spec="${item.spec||''}" data-color="${item.color||''}">${item.sku} - ${item.name} (${item.spec||''}/${item.color||''})</option>`;
+    });
+
+    tr.innerHTML = `
+      <td>
+        <select class="form-select form-select-sm po-sku-select mb-1" onchange="onPoSkuChanged(this)">
+          ${invOptions}
+        </select>
+        <input type="text" class="po-model" placeholder="型號">
+      </td>
+      <td><input type="text" class="po-name" placeholder="品名"></td>
+      <td><input type="text" class="po-size" placeholder="規格"></td>
+      <td><input type="text" class="po-color" placeholder="顏色"></td>
+      <td><input type="number" class="po-qty input-qty" min="0" oninput="calculatePoTotals()"></td>
+      <td><input type="number" class="po-price input-price" step="0.01" min="0" oninput="calculatePoTotals()"></td>
+      <td><input type="text" class="po-total readonly input-total" readonly></td>
+      <td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td>`;
     tbody.appendChild(tr);
+    
     const rTr = document.createElement('tr');
     rTr.innerHTML = `<td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" placeholder="備註..."></td>`;
     tbody.appendChild(rTr);
     calculatePoTotals();
   }
 
-  function calculatePoTotals() {
-    const curr = document.getElementById('po_currency').value;
-    document.getElementById('poCurrencyLabel').innerText = curr;
-    let gt = 0;
-    document.querySelectorAll('#poItemsBody tr:not(:nth-child(even))').forEach(row => {
-      const q = parseFloat(row.querySelector('.po-qty').value) || 0;
-      const p = parseFloat(row.querySelector('.po-price').value) || 0;
-      const t = q * p;
-      row.querySelector('.po-total').value = t ? t.toLocaleString('zh-TW', {minimumFractionDigits:2}) : '';
-      gt += t;
-    });
-    document.getElementById('poGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
-    const dep = parseFloat(document.getElementById('po_dep_pct').value) || 0;
-    const bal = 100 - dep;
-    document.getElementById('po_bal_pct').value = bal;
-    document.getElementById('po_dep_amt').value = curr ? `${curr} ${(gt * dep / 100).toLocaleString('zh-TW', {minimumFractionDigits:2})}` : '';
-    document.getElementById('po_bal_amt').value = curr ? `${curr} ${(gt * bal / 100).toLocaleString('zh-TW', {minimumFractionDigits:2})}` : '';
+  // 當在採購單選擇庫存型號時，自動把規格、顏色、品名帶入欄位
+  function onPoSkuChanged(selectElem) {
+    const opt = selectElem.selectedOptions[0];
+    if (!opt || !opt.value) return;
+    const row = selectElem.closest('tr');
+    row.querySelector('.po-model').value = opt.value;
+    row.querySelector('.po-name').value = opt.getAttribute('data-name');
+    row.querySelector('.po-size').value = opt.getAttribute('data-spec');
+    row.querySelector('.po-color').value = opt.getAttribute('data-color');
   }
 
   function queryPoRecord() {
