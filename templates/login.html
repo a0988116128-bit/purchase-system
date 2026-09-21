@@ -1,61 +1,28 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <title>登入 - 珮藏居採購管理系統</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            background: #ffffff;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>系統登入 - 珮藏居傢俱管理系統</title>
+  <style>
+    body { background: #0f172a; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; margin: 0; }
+    .card { background: #fff; padding: 40px; border-radius: 12px; width: 100%; max-width: 400px; box-shadow: 0 20px 25px rgba(0,0,0,0.3); border-top: 4px solid #c59b27; }
+    h2 { color: #0f172a; margin-bottom: 6px; font-size: 20px; }
+    p { color: #64748b; font-size: 13px; margin-bottom: 24px; }
+    .form-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 12.5px; font-weight: 600; color: #334155; }
+    input { padding: 8px 12px; border: 1px solid #94a3b8; border-radius: 4px; font-size: 14px; outline: none; }
+    button { background: #c59b27; color: #fff; border: none; padding: 10px; width: 100%; font-weight: 700; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 10px; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-5">
-                <div class="card login-card p-4 p-md-5">
-                    <div class="text-center mb-4">
-                        <h3 class="fw-bold text-dark">珮藏居採購系統</h3>
-                        <p class="text-muted small">請輸入您的帳號密碼以登入系統</p>
-                    </div>
-
-                    {% with messages = get_flashed_messages(with_categories=true) %}
-                      {% if messages %}
-                        {% for category, message in messages %}
-                          <div class="alert alert-{{ category }} alert-dismissible fade show py-2 small" role="alert">
-                            {{ message }}
-                            <button type="button" class="btn-close py-2" data-bs-dismiss="alert" aria-label="Close"></button>
-                          </div>
-                        {% endfor %}
-                      {% endif %}
-                    {% endwith %}
-
-                    <form method="POST">
-                        <div class="mb-3">
-                            <label class="form-label text-secondary small fw-bold">使用者編號 (ID)</label>
-                            <input type="text" name="user_id" class="form-control" placeholder="例如: 01" required autofocus>
-                        </div>
-                        <div class="mb-4">
-                            <label class="form-label text-secondary small fw-bold">密碼 (Password)</label>
-                            <input type="password" name="password" class="form-control" placeholder="請輸入密碼" required>
-                        </div>
-                        <button type="submit" class="btn btn-dark w-100 py-2 fw-bold">安全登入</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <div class="card">
+    <h2>珮藏居傢俱有限公司</h2>
+    <p>請輸入授權帳號與密碼進行登入</p>
+    <form method="POST">
+      <div class="form-group"><label>帳號</label><input type="text" name="username" required></div>
+      <div class="form-group"><label>密碼</label><input type="password" name="password" required></div>
+      <button type="submit">登入系統</button>
+    </form>
+  </div>
 </body>
 </html>
