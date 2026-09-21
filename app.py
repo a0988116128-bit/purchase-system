@@ -38,10 +38,9 @@ def init_db():
         
         cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id SERIAL PRIMARY KEY, warehouse_name TEXT UNIQUE NOT NULL)")
         
-        # 確保庫存商品資料表完整
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inventory_items (
-                sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, 
+                sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT DEFAULT '床墊', 
                 cost REAL DEFAULT 0, price REAL DEFAULT 0, stock INTEGER DEFAULT 0, 
                 safety_stock INTEGER DEFAULT 0, note TEXT
             )
@@ -180,7 +179,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS sales_performance (
                 id SERIAL PRIMARY KEY,
                 sales_person TEXT, order_id TEXT, order_date TEXT,
-                customer_name TEXT, sales_amount REAL, commission_rate REAL DEFAULT 0.05,
+                customer_name TEXT, category TEXT DEFAULT '床墊', sales_amount REAL, multiplier REAL DEFAULT 1.8, 
+                weighted_amount REAL, commission_rate REAL DEFAULT 0.05,
                 commission_amount REAL, status TEXT DEFAULT '已結算',
                 note TEXT, created_at TEXT
             )
@@ -199,7 +199,6 @@ def init_db():
             )
         """)
 
-        # 自動建立或強制更新使用者帳號密碼
         default_users = [
             ("EMP01", "黃詠甯", "0320", "會計主管"),
             ("EMP02", "江婉秀", "0510", "門市經辦"),
@@ -303,7 +302,7 @@ def get_customer(c_id):
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
 
-# --- 庫存商品 CRUD API (支援新增與修改) ---
+# --- 庫存商品 CRUD API ---
 @app.route("/api/inventory/list")
 def get_inventory():
     conn = get_db_connection()
@@ -331,7 +330,7 @@ def save_inventory_item():
                 price = EXCLUDED.price, 
                 stock = EXCLUDED.stock, 
                 safety_stock = EXCLUDED.safety_stock
-        """, (data.get("sku"), data.get("name"), data.get("category"),
+        """, (data.get("sku"), data.get("name"), data.get("category", "床墊"),
               data.get("cost"), data.get("price"), data.get("stock"),
               data.get("safety_stock"), data.get("note", "")))
         conn.commit()
@@ -580,7 +579,7 @@ def save_inbound():
             sku = item.get("model")
             cursor.execute("""
                 INSERT INTO inventory_items (sku, name, category, cost, price, stock, safety_stock, note)
-                VALUES (%s, %s, '五金配件', %s, %s, %s, 10, '進貨入庫')
+                VALUES (%s, %s, '床墊', %s, %s, %s, 10, '進貨入庫')
                 ON CONFLICT (sku) DO UPDATE SET stock = inventory_items.stock + EXCLUDED.stock
             """, (sku, item.get("name"), item.get("unit_price"), item.get("unit_price") * 1.5, item.get("actual_qty")))
         v_display = f"{v_id} {v_name}".strip() if v_id else v_name
@@ -739,24 +738,31 @@ def save_sales_performance():
         conn = get_db_connection()
         cursor = conn.cursor()
         sp_id = data.get("perf_id")
+        category = data.get("category", "床墊")
         sales_amt = float(data.get("sales_amount", 0))
+        
+        # 自動套用管銷係數計算：床墊 1.8, 傢俱 1.3, 陸製品/其它 1.0
+        multiplier = 1.8 if category == "床墊" else (1.3 if category == "傢俱" else 1.0)
+        weighted_amt = sales_amt * multiplier
+        
         rate = float(data.get("commission_rate", 0.05))
-        comm_amt = sales_amt * rate
+        comm_amt = weighted_amt * rate
+        
         if sp_id:
             cursor.execute("""
-                UPDATE sales_performance SET sales_person=%s, order_id=%s, order_date=%s, customer_name=%s, sales_amount=%s, commission_rate=%s, commission_amount=%s, status=%s, note=%s WHERE id=%s
+                UPDATE sales_performance SET sales_person=%s, order_id=%s, order_date=%s, customer_name=%s, category=%s, sales_amount=%s, multiplier=%s, weighted_amount=%s, commission_rate=%s, commission_amount=%s, status=%s, note=%s WHERE id=%s
             """, (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
-                  sales_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), sp_id))
+                  category, sales_amt, multiplier, weighted_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), sp_id))
         else:
             cursor.execute("""
-                INSERT INTO sales_performance (sales_person, order_id, order_date, customer_name, sales_amount, commission_rate, commission_amount, status, note, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO sales_performance (sales_person, order_id, order_date, customer_name, category, sales_amount, multiplier, weighted_amount, commission_rate, commission_amount, status, note, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (data.get("sales_person"), data.get("order_id"), data.get("order_date"), data.get("customer_name"),
-                  sales_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                  category, sales_amt, multiplier, weighted_amt, rate, comm_amt, data.get("status", "已結算"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         cursor.close()
         conn.close()
-        return jsonify({"success": True, "message": "✔ 業務業績紀錄存檔成功！"})
+        return jsonify({"success": True, "message": f"✔ 業績存檔成功！類別【{category}】(係數 {multiplier})，加權業績金額: ${weighted_amt:,.2f}"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 @app.route("/api/sales/performance/delete/<int:sp_id>", methods=["POST"])
@@ -1418,16 +1424,24 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 5. 庫存管理系統 -->
+  <!-- 5. 庫存管理系統 (含管銷分類) -->
   <div id="inventoryView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📦 商品建檔與維護（新增或修改）</h6>
+        <h6 class="fw-bold text-primary mb-2">📦 商品建檔與管銷分類維護</h6>
         <form id="inventoryForm" onsubmit="handleInventorySave(event)" style="padding:0;">
           <div class="row g-2">
             <div class="col-3"><label class="form-label">商品型號 (SKU) *</label><input type="text" id="invSku" class="form-control form-control-sm" placeholder="例: P001" required></div>
             <div class="col-3"><label class="form-label">商品名稱 *</label><input type="text" id="invName" class="form-control form-control-sm" placeholder="商品名稱" required></div>
-            <div class="col-3"><label class="form-label">分類</label><input type="text" id="invCategory" class="form-control form-control-sm" placeholder="類別"></div>
+            <div class="col-3">
+              <label class="form-label text-danger fw-bold">管銷分類 *</label>
+              <select id="invCategory" class="form-select form-select-sm fw-bold text-danger" required>
+                <option value="床墊" selected>🛌 床墊 (管銷 1.8)</option>
+                <option value="傢俱">🪑 傢俱 (管銷 1.3)</option>
+                <option value="陸製品">📦 陸製品 (無管銷)</option>
+                <option value="其它">🏷️ 其它 (無管銷)</option>
+              </select>
+            </div>
             <div class="col-3"><label class="form-label">進貨成本 ($)</label><input type="number" id="invCost" class="form-control form-control-sm" value="0" step="0.01"></div>
           </div>
           <div class="row g-2 mt-2">
@@ -1450,7 +1464,7 @@ MAIN_HTML = """
         </div>
       </div>
       <table class="items-table">
-        <thead><tr><th>型號/SKU</th><th>商品名稱</th><th>分類</th><th>成本</th><th>售價</th><th>庫存量</th><th>安全庫存</th><th class="no-print text-center">操作</th></tr></thead>
+        <thead><tr><th>型號/SKU</th><th>商品名稱</th><th>管銷分類</th><th>成本</th><th>售價</th><th>庫存量</th><th>安全庫存</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="inventoryTableBody"></tbody>
       </table>
     </div>
@@ -1518,11 +1532,11 @@ MAIN_HTML = """
     </form>
   </div>
 
-  <!-- 8. 業務業績統計系統 -->
+  <!-- 8. 業務業績統計系統 (支援自動管銷計算) -->
   <div id="salesPerfView" class="app-view">
     <div style="padding:22px 30px;">
       <div class="card p-3 mb-4 bg-light border no-print">
-        <h6 class="fw-bold text-primary mb-2">🏆 手動登錄或維護業務業績</h6>
+        <h6 class="fw-bold text-primary mb-2">🏆 業務業績登錄 (自動套用管銷係數：床墊 1.8 / 傢俱 1.3 / 其它 1.0)</h6>
         <form id="salesPerfForm" onsubmit="handleSalesPerfSave(event)" style="padding:0;">
           <input type="hidden" id="perfRecordId">
           <div class="row g-2">
@@ -1532,10 +1546,19 @@ MAIN_HTML = """
             <div class="col-3"><label class="form-label">客戶名稱 *</label><input type="text" id="perfCustomer" class="form-control form-control-sm" placeholder="客戶名稱" required></div>
           </div>
           <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">業績金額 ($) *</label><input type="number" id="perfSalesAmount" class="form-control form-control-sm" value="0" step="0.01" required></div>
-            <div class="col-4"><label class="form-label">抽成比例 (例如 0.05)</label><input type="number" id="perfRate" class="form-control form-control-sm" value="0.05" step="0.01"></div>
-            <div class="col-4 d-flex align-items-end gap-1">
-              <button type="submit" id="perfSubmitBtn" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存業績</button>
+            <div class="col-3">
+              <label class="form-label text-danger fw-bold">管銷類別 *</label>
+              <select id="perfCategory" class="form-select form-select-sm fw-bold text-danger">
+                <option value="床墊" selected>床墊 (係數 1.8)</option>
+                <option value="傢俱">傢俱 (係數 1.3)</option>
+                <option value="陸製品">陸製品 (無管銷 1.0)</option>
+                <option value="其它">其它 (無管銷 1.0)</option>
+              </select>
+            </div>
+            <div class="col-3"><label class="form-label">原始業績金額 ($) *</label><input type="number" id="perfSalesAmount" class="form-control form-control-sm fw-bold" value="0" step="0.01" required></div>
+            <div class="col-3"><label class="form-label">抽成比例 (預設 0.05)</label><input type="number" id="perfRate" class="form-control form-control-sm" value="0.05" step="0.01"></div>
+            <div class="col-3 d-flex align-items-end gap-1">
+              <button type="submit" id="perfSubmitBtn" class="btn btn-success btn-sm w-100 fw-bold">💾 計算並儲存業績</button>
               <button type="button" class="btn btn-secondary btn-sm" onclick="resetSalesPerfForm()">重設</button>
             </div>
           </div>
@@ -1555,7 +1578,7 @@ MAIN_HTML = """
       </div>
 
       <table class="items-table">
-        <thead><tr><th>業務人員</th><th>訂單編號</th><th>成交日期</th><th>客戶名稱</th><th>業績金額</th><th>抽成比例</th><th>預估抽成獎金</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
+        <thead><tr><th>業務人員</th><th>訂單</th><th>日期</th><th>客戶</th><th>類別(係數)</th><th>原始金額</th><th>加權管銷金額</th><th>抽成</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
         <tbody id="salesPerfTableBody"></tbody>
       </table>
     </div>
@@ -2478,10 +2501,11 @@ MAIN_HTML = """
     const tb = document.getElementById('inventoryTableBody'); tb.innerHTML = '';
     if (!items.length) { tb.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-muted">尚無商品與庫存資料，請於上方新增</td></tr>`; return; }
     items.forEach(item => {
+      const badgeColor = item.category === '床墊' ? 'bg-danger' : (item.category === '傢俱' ? 'bg-primary' : 'bg-secondary');
       tb.innerHTML += `<tr>
         <td><strong>${item.sku}</strong></td>
         <td class="text-start">${item.name}</td>
-        <td>${item.category||'-'}</td>
+        <td><span class="badge ${badgeColor}">${item.category||'床墊'}</span></td>
         <td class="text-end">$${item.cost.toLocaleString()}</td>
         <td class="text-end">$${item.price.toLocaleString()}</td>
         <td class="text-end fw-bold text-success">${item.stock.toLocaleString()} 件</td>
@@ -2505,7 +2529,7 @@ MAIN_HTML = """
     const payload = {
       sku: document.getElementById('invSku').value.trim(),
       name: document.getElementById('invName').value.trim(),
-      category: document.getElementById('invCategory').value.trim(),
+      category: document.getElementById('invCategory').value,
       cost: parseFloat(document.getElementById('invCost').value) || 0,
       price: parseFloat(document.getElementById('invPrice').value) || 0,
       stock: parseInt(document.getElementById('invStock').value) || 0,
@@ -2523,7 +2547,7 @@ MAIN_HTML = """
     document.getElementById('invSku').value = item.sku;
     document.getElementById('invSku').readOnly = true;
     document.getElementById('invName').value = item.name;
-    document.getElementById('invCategory').value = item.category || '';
+    document.getElementById('invCategory').value = item.category || '床墊';
     document.getElementById('invCost').value = item.cost;
     document.getElementById('invPrice').value = item.price;
     document.getElementById('invStock').value = item.stock;
@@ -2545,7 +2569,7 @@ MAIN_HTML = """
     document.getElementById('invSku').readOnly = false;
   }
 
-  // 客戶建立管理 (含地址 CRUD)
+  // 客戶建立管理
   function loadCustomers() {
     fetch('/api/customers/list').then(r => r.json()).then(data => {
       cachedCustomers = data || [];
@@ -2661,16 +2685,17 @@ MAIN_HTML = """
         return true;
       });
 
-      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">尚無符合條件的業務業績紀錄</td></tr>`; return; }
+      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">尚無符合條件的業務業績紀錄</td></tr>`; return; }
       filtered.forEach(d => {
         tb.innerHTML += `<tr>
           <td><strong>${d.sales_person}</strong></td>
           <td>${d.order_id||'-'}</td>
           <td>${d.order_date}</td>
           <td>${d.customer_name}</td>
+          <td><span class="badge ${d.category==='床墊'?'bg-danger':(d.category==='傢俱'?'bg-primary':'bg-secondary')}">${d.category} (x${d.multiplier})</span></td>
           <td class="text-end">$${d.sales_amount.toLocaleString()}</td>
-          <td class="text-center">${(d.commission_rate*100)}%</td>
-          <td class="text-end fw-bold text-success">$${d.commission_amount.toLocaleString()}</td>
+          <td class="text-end fw-bold text-success">$${d.weighted_amount.toLocaleString()}</td>
+          <td class="text-end">$${d.commission_amount.toLocaleString()}</td>
           <td class="text-center"><span class="badge bg-success">${d.status}</span></td>
           <td class="text-center no-print">
             <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editSalesPerf(${JSON.stringify(d)})'>✏️</button>
@@ -2689,6 +2714,7 @@ MAIN_HTML = """
       order_id: document.getElementById('perfOrderId').value.trim(),
       order_date: document.getElementById('perfOrderDate').value,
       customer_name: document.getElementById('perfCustomer').value.trim(),
+      category: document.getElementById('perfCategory').value,
       sales_amount: parseFloat(document.getElementById('perfSalesAmount').value) || 0,
       commission_rate: parseFloat(document.getElementById('perfRate').value) || 0.05,
       status: '已結算',
@@ -2707,6 +2733,7 @@ MAIN_HTML = """
     document.getElementById('perfOrderId').value = d.order_id || '';
     document.getElementById('perfOrderDate').value = d.order_date;
     document.getElementById('perfCustomer').value = d.customer_name;
+    document.getElementById('perfCategory').value = d.category || '床墊';
     document.getElementById('perfSalesAmount').value = d.sales_amount;
     document.getElementById('perfRate').value = d.commission_rate;
     document.getElementById('perfSubmitBtn').innerText = "✏️ 覆寫修改業績";
@@ -2726,7 +2753,7 @@ MAIN_HTML = """
     document.getElementById('salesPerfForm').reset();
     document.getElementById('perfRecordId').value = '';
     document.getElementById('perfOrderDate').valueAsDate = new Date();
-    document.getElementById('perfSubmitBtn').innerText = "💾 儲存業績";
+    document.getElementById('perfSubmitBtn').innerText = "💾 計算並儲存業績";
   }
 
   // 信用卡刷卡與退刷管理
