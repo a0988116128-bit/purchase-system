@@ -10,7 +10,7 @@ app.secret_key = "pezang_fixed_duplicate_endpoint_2026"
 # 設定你的 Supabase PostgreSQL 雲端資料庫連線字串 (Session Pooler)
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
-    "postgresql://postgres.gutyrssxtpuxndflkceq:Erin83390454@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+    "postgresql://postgres.gutyrssxtpuxndflkceq:你的真實密碼@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 def get_db_connection():
@@ -24,7 +24,7 @@ def init_db():
 
         cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, role TEXT)")
         
-        # 供應商資料表 (新增完整聯絡資訊與地址)
+        # 供應商資料表
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS suppliers (
                 supplier_code TEXT PRIMARY KEY, supplier_name TEXT NOT NULL, tax_id TEXT, 
@@ -40,7 +40,7 @@ def init_db():
         
         cursor.execute("CREATE TABLE IF NOT EXISTS warehouses (id SERIAL PRIMARY KEY, warehouse_name TEXT UNIQUE NOT NULL)")
         
-        # 庫存項目資料表 (新增 spec 規格與 color 顏色)
+        # 庫存項目資料表 (含 spec 規格與 color 顏色)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS inventory_items (
                 sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, 
@@ -67,10 +67,11 @@ def init_db():
             )
         """)
 
+        # 採購單主檔 (已移除 price_term)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS purchase_orders (
                 po_number TEXT PRIMARY KEY, purchaser TEXT, order_date TEXT, delivery_date TEXT,
-                price_term TEXT, vendor_type TEXT, supplier_code TEXT, supplier_name TEXT,
+                vendor_type TEXT, supplier_code TEXT, supplier_name TEXT,
                 vendor_contact TEXT, currency TEXT, grand_total REAL, deposit_pct REAL,
                 deposit_amount TEXT, balance_pct REAL, balance_amount TEXT,
                 shipping_mark TEXT, packing TEXT, bank_info TEXT, created_at TEXT
@@ -178,7 +179,6 @@ def init_db():
             )
         """)
 
-        # 業務業績與管銷係數自動計算表格 (expense_coefficient, net_performance)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sales_performance (
                 id SERIAL PRIMARY KEY,
@@ -220,20 +220,6 @@ def init_db():
         if cursor.fetchone()["count"] == 0:
             cursor.executemany("INSERT INTO warehouses (warehouse_name) VALUES (%s)",
                 [("八里倉",), ("南倉",), ("土城門市倉",), ("外倉",)])
-
-        cursor.execute("SELECT COUNT(*) FROM customers")
-        if cursor.fetchone()["count"] == 0:
-            cursor.executemany("INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms, address) VALUES (%s, %s, %s, %s, %s, %s)", [
-                ("C001", "王小明", "11223344", "0912-345678", "月結30天", "新北市板橋區中山路一段1號"),
-                ("C002", "林美華", "55667788", "0922-888999", "月結30天", "台北市信義區市府路45號")
-            ])
-
-        cursor.execute("SELECT COUNT(*) FROM employees")
-        if cursor.fetchone()["count"] == 0:
-            cursor.executemany("INSERT INTO employees (emp_id, emp_name, department, title, phone, hire_date, base_salary, status, bank_name, bank_account, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", [
-                ("EMP01", "黃詠甯", "管理部", "會計及特助", "0912-345678", "2024-01-01", 45000, "在職", "國泰世華", "012-3456-7890", "核心管理"),
-                ("EMP02", "江婉秀", "門市部", "門市經辦", "0922-888999", "2024-06-01", 35000, "在職", "中國信託", "822-9876-5432", "門市業務")
-            ])
 
         conn.commit()
         cursor.close()
@@ -306,7 +292,7 @@ def get_customer(c_id):
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
 
-# --- 客戶建立 CRUD API (支援地址) ---
+# --- 客戶建立 CRUD API ---
 @app.route("/api/customers/list")
 def api_get_customers():
     conn = get_db_connection()
@@ -328,11 +314,8 @@ def api_save_customer():
             INSERT INTO customers (customer_code, customer_name, tax_id, contact_info, payment_terms, address)
             VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (customer_code) DO UPDATE 
-            SET customer_name = EXCLUDED.customer_name, 
-                tax_id = EXCLUDED.tax_id, 
-                contact_info = EXCLUDED.contact_info, 
-                payment_terms = EXCLUDED.payment_terms,
-                address = EXCLUDED.address
+            SET customer_name = EXCLUDED.customer_name, tax_id = EXCLUDED.tax_id, 
+                contact_info = EXCLUDED.contact_info, payment_terms = EXCLUDED.payment_terms, address = EXCLUDED.address
         """, (data.get("customer_code"), data.get("customer_name"), data.get("tax_id"),
               data.get("contact_info"), data.get("payment_terms"), data.get("address")))
         conn.commit()
@@ -458,7 +441,7 @@ def delete_payroll(pay_id):
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 
-# --- 採購與進貨 API ---
+# --- 採購與進貨 API (已移除 price_term) ---
 @app.route("/api/po/save", methods=["POST"])
 def save_po():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -470,15 +453,14 @@ def save_po():
         cursor.execute("DELETE FROM purchase_orders WHERE po_number = %s", (po_no,))
         cursor.execute("DELETE FROM purchase_items WHERE po_number = %s", (po_no,))
         
-        # 安全轉換數值，避免前端傳入空字串 "" 造成資料庫轉型失敗
         grand_total = float(data.get("grand_total") or 0)
         dep_pct = float(data.get("dep_pct") or 0)
         bal_pct = float(data.get("bal_pct") or 100)
 
         cursor.execute("""
-            INSERT INTO purchase_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            INSERT INTO purchase_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (po_no, data.get("buyer_name"), data.get("order_date"), data.get("delivery_date"),
-              data.get("price_term"), data.get("vendor_type"), data.get("vendor_id"), data.get("vendor_name"),
+              data.get("vendor_type"), data.get("vendor_id"), data.get("vendor_name"),
               data.get("vendor_contact"), data.get("currency"), grand_total, dep_pct,
               str(data.get("dep_amt", "")), bal_pct, str(data.get("bal_amt", "")),
               data.get("shipping_mark"), data.get("packing"), data.get("bank_info"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
@@ -497,8 +479,9 @@ def save_po():
         cursor.close()
         conn.close()
         return jsonify({"status": "success"})
-    except Exception as e: 
-        return jsonify({"status": "error", "message": str(e)})@app.route("/api/po/<string:po_no>")
+    except Exception as e: return jsonify({"status": "error", "message": str(e)})
+
+@app.route("/api/po/<string:po_no>")
 def get_po(po_no):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -750,7 +733,6 @@ def save_sales_performance():
         expense_coef = float(data.get("expense_coefficient", 0.15))
         rate = float(data.get("commission_rate", 0.05))
         
-        # 自動計算管銷扣除後的淨業績：銷售總額 × (1 - 管銷係數)
         net_perf = sales_amt * (1 - expense_coef)
         comm_amt = net_perf * rate
 
@@ -1055,7 +1037,7 @@ def get_finance_summary():
     })
 
 
-# --- 供應商管理頁面 (含完整聯絡資訊與地址) ---
+# --- 供應商管理頁面 ---
 @app.route("/suppliers")
 def suppliers_page():
     if "user_id" not in session: return redirect(url_for("login_page"))
@@ -1291,27 +1273,26 @@ MAIN_HTML = """
         </div>
         <div class="grid-2" style="margin-top:12px;">
           <div class="form-group"><label class="required">交貨日期</label><input type="date" id="po_delivery_date" required></div>
-          <div class="form-group"><label class="required">Price Term</label><input type="text" id="po_price_term" required></div>
+          <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
         </div>
         <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
-          <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
           <div class="form-group"><label>廠商編號</label><input type="text" id="po_vendor_id" onblur="lookupVendorName('po')"></div>
           <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" required></div>
+          <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
         </div>
         <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">幣別</label><select id="po_currency" required onchange="calculatePoTotals()"><option value="" disabled selected hidden>請選擇</option><option value="USD">USD</option><option value="NTD">NTD</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="JPY">JPY</option></select></div>
-          <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
+          <div class="form-group"><label class="required">幣別</label><select id="po_currency" required onchange="calculatePoTotals()"><option value="NTD" selected>NTD</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="JPY">JPY</option></select></div>
         </div>
       </div>
       <div class="section-block">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細 (含規格與顏色)</div>
+          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細 (輸入型號自動帶出規格顏色)</div>
           <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
         </div>
         <table class="items-table">
           <thead><tr><th style="width:14%;">型號</th><th style="width:18%;">品名</th><th style="width:12%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
           <tbody id="poItemsBody"></tbody>
-          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總金額：</td><td colspan="2" style="font-weight:bold;"><span id="poGrandTotalText">0.00</span> <span id="poCurrencyLabel"></span></td></tr></tfoot>
+          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總金額：</td><td colspan="2" style="font-weight:bold;"><span id="poGrandTotalText">0.00</span> <span id="poCurrencyLabel">NTD</span></td></tr></tfoot>
         </table>
       </div>
       <div class="section-block">
@@ -2168,7 +2149,7 @@ MAIN_HTML = """
     return opts;
   }
 
-  // 採購單明細：支援手動輸入型號後自動帶出規格與顏色
+  // 採購單明細：支援輸入型號後自動帶出規格與顏色，並完美計算總金額
   function addPoItemRow() {
     const tbody = document.getElementById('poItemsBody');
     const tr = document.createElement('tr');
@@ -2189,20 +2170,16 @@ MAIN_HTML = """
     calculatePoTotals();
   }
 
-  // 當「型號」輸入完畢離開 (onblur) 時，自動從已快取的庫存比對並帶出資訊
+  // 輸入型號離開時自動帶出
   function onPoModelBlur(inputElem) {
     const skuVal = inputElem.value.trim();
     if (!skuVal) return;
-    
-    // 從現有的 cachedInventory 中尋找相符的 SKU
     const found = cachedInventory.find(item => item.sku.toLowerCase() === skuVal.toLowerCase());
     const row = inputElem.closest('tr');
-    
     if (found) {
       row.querySelector('.po-name').value = found.name || '';
       row.querySelector('.po-size').value = found.spec || '';
       row.querySelector('.po-color').value = found.color || '';
-      // 如果庫存有預設成本或售價，也可以順便帶入單價（選填）
       if (found.cost && !row.querySelector('.po-price').value) {
         row.querySelector('.po-price').value = found.cost;
         calculatePoTotals();
@@ -2210,15 +2187,40 @@ MAIN_HTML = """
     }
   }
 
-  // 當在採購單選擇庫存型號時，自動把規格、顏色、品名帶入欄位
-  function onPoSkuChanged(selectElem) {
-    const opt = selectElem.selectedOptions[0];
-    if (!opt || !opt.value) return;
-    const row = selectElem.closest('tr');
-    row.querySelector('.po-model').value = opt.value;
-    row.querySelector('.po-name').value = opt.getAttribute('data-name');
-    row.querySelector('.po-size').value = opt.getAttribute('data-spec');
-    row.querySelector('.po-color').value = opt.getAttribute('data-color');
+  function calculatePoTotals() {
+    const curr = document.getElementById('po_currency') ? document.getElementById('po_currency').value : 'NTD';
+    const labelEl = document.getElementById('poCurrencyLabel');
+    if (labelEl) labelEl.innerText = curr;
+    
+    let gt = 0;
+    document.querySelectorAll('#poItemsBody tr:not(:nth-child(even))').forEach(row => {
+      const qInput = row.querySelector('.po-qty');
+      const pInput = row.querySelector('.po-price');
+      const tInput = row.querySelector('.po-total');
+      if (!qInput || !pInput) return;
+      
+      const q = parseFloat(qInput.value) || 0;
+      const p = parseFloat(pInput.value) || 0;
+      const t = q * p;
+      if (tInput) tInput.value = t ? t.toLocaleString('zh-TW', {minimumFractionDigits:2}) : '';
+      gt += t;
+    });
+    
+    const gtText = document.getElementById('poGrandTotalText');
+    if (gtText) gtText.innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
+    
+    const depInput = document.getElementById('po_dep_pct');
+    const dep = depInput ? (parseFloat(depInput.value) || 0) : 0;
+    const bal = 100 - dep;
+    
+    const balPctEl = document.getElementById('po_bal_pct');
+    if (balPctEl) balPctEl.value = bal;
+    
+    const depAmtEl = document.getElementById('po_dep_amt');
+    if (depAmtEl) depAmtEl.value = curr ? `${curr} ${(gt * dep / 100).toLocaleString('zh-TW', {minimumFractionDigits:2})}` : '';
+    
+    const balAmtEl = document.getElementById('po_bal_amt');
+    if (balAmtEl) balAmtEl.value = curr ? `${curr} ${(gt * bal / 100).toLocaleString('zh-TW', {minimumFractionDigits:2})}` : '';
   }
 
   function queryPoRecord() {
@@ -2230,7 +2232,6 @@ MAIN_HTML = """
         document.getElementById('po_buyer_name').value = h.purchaser;
         document.getElementById('po_order_date').value = h.order_date;
         document.getElementById('po_delivery_date').value = h.delivery_date;
-        document.getElementById('po_price_term').value = h.price_term;
         document.getElementById('po_vendor_type').value = h.vendor_type;
         document.getElementById('po_vendor_id').value = h.supplier_code;
         document.getElementById('po_vendor_name').value = h.supplier_name;
@@ -2242,7 +2243,7 @@ MAIN_HTML = """
         document.getElementById('po_bank_info').value = h.bank_info;
         const tbody = document.getElementById('poItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="po-model" value="${it.model||''}"></td><td><input type="text" class="po-name" value="${it.name||''}"></td><td><input type="text" class="po-size" value="${it.size||''}"></td><td><input type="text" class="po-color" value="${it.color||''}"></td><td><input type="number" class="po-qty input-qty" value="${it.qty||''}" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" value="${it.unit_price||''}" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
+          tbody.innerHTML += `<tr><td><input type="text" class="po-model" value="${it.model||''}" onblur="onPoModelBlur(this)"></td><td><input type="text" class="po-name" value="${it.name||''}"></td><td><input type="text" class="po-size" value="${it.size||''}"></td><td><input type="text" class="po-color" value="${it.color||''}"></td><td><input type="number" class="po-qty input-qty" value="${it.qty||''}" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" value="${it.unit_price||''}" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
         });
         calculatePoTotals();
         alert("✔ 採購單載入成功！");
@@ -2266,7 +2267,7 @@ MAIN_HTML = """
     const payload = {
       buyer_name: document.getElementById('po_buyer_name').value, po_no: document.getElementById('po_no').value,
       order_date: document.getElementById('po_order_date').value, delivery_date: document.getElementById('po_delivery_date').value,
-      price_term: document.getElementById('po_price_term').value, vendor_type: document.getElementById('po_vendor_type').value,
+      vendor_type: document.getElementById('po_vendor_type').value,
       vendor_id: document.getElementById('po_vendor_id').value, vendor_name: document.getElementById('po_vendor_name').value,
       vendor_contact: document.getElementById('po_vendor_contact').value, currency: document.getElementById('po_currency').value,
       items: items, grand_total: gt, dep_pct: document.getElementById('po_dep_pct').value,
@@ -2350,7 +2351,7 @@ MAIN_HTML = """
     });
   }
 
-  // 客戶訂單 (含規格與顏色)
+  // 客戶訂單
   function addSoItemRow() {
     const tbody = document.getElementById('soItemsBody');
     const tr = document.createElement('tr');
@@ -2582,7 +2583,7 @@ MAIN_HTML = """
     document.getElementById('invSku').readOnly = false;
   }
 
-  // 客戶建立管理 (含地址 CRUD)
+  // 客戶建立管理
   function loadCustomers() {
     fetch('/api/customers/list').then(r => r.json()).then(data => {
       cachedCustomers = data || [];
