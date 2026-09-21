@@ -243,7 +243,7 @@ def index():
     if "user_id" not in session:
         return redirect(url_for("login_page"))
     is_accountant = session["user_id"] in ["EMP01", "EMP02", "admin"]
-    return render_template_string(MAIN_HTML, user_name=session["user_name"], user_id=session["user_id"], is_accountant=is_accountant)
+    return render_template("index.html", user_name=session["user_name"], user_id=session["user_id"], is_accountant=is_accountant)
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
