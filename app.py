@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
 import os
+import re
 import psycopg2
 import psycopg2.extras
 
@@ -67,7 +68,7 @@ def init_db():
             )
         """)
 
-        # 採購單主檔 (已移除 price_term)
+        # 採購單主檔
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS purchase_orders (
                 po_number TEXT PRIMARY KEY, purchaser TEXT, order_date TEXT, delivery_date TEXT,
@@ -159,6 +160,12 @@ def init_db():
                 vendor_name TEXT, pay_amount REAL, pay_method TEXT, remarks TEXT, created_at TEXT
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ar_invoices (
+                do_number TEXT PRIMARY KEY, delivery_date TEXT, customer_display TEXT,
+                total_amount REAL, payment_term TEXT, due_date TEXT, status TEXT DEFAULT '未收'
+            )
+        """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS ar_records (
@@ -229,7 +236,6 @@ def init_db():
 
 init_db()
 
-
 # ==================== 路由與 API ====================
 
 @app.route("/")
@@ -291,7 +297,6 @@ def get_customer(c_id):
     conn.close()
     return jsonify({"found": True, "customer_name": row["customer_name"]} if row else {"found": False})
 
-
 # --- 客戶建立 CRUD API ---
 @app.route("/api/customers/list")
 def api_get_customers():
@@ -336,7 +341,6 @@ def api_delete_customer(c_code):
         conn.close()
         return jsonify({"success": True, "message": "✔ 客戶刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
-
 
 # --- 員工與薪資 CRUD API ---
 @app.route("/api/employees/list")
@@ -440,8 +444,7 @@ def delete_payroll(pay_id):
         return jsonify({"success": True, "message": "✔ 薪資紀錄刪除成功！"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-
-# --- 採購與進貨 API (已移除 price_term) ---
+# --- 採購與進貨 API ---
 @app.route("/api/po/save", methods=["POST"])
 def save_po():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -457,8 +460,6 @@ def save_po():
         dep_pct = float(data.get("dep_pct") or 0)
         bal_pct = float(data.get("bal_pct") or 100)
 
-        # 處理訂金與尾款金額，確保只抓取純數字，避免帶入 "NTD" 等文字造成資料庫 real 型態錯誤
-        import re
         def extract_number(val):
             if not val: return 0.0
             numbers = re.findall(r"[-+]?\d*\.\d+|\d+", str(val))
@@ -491,6 +492,7 @@ def save_po():
         return jsonify({"status": "success"})
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)})
+
 @app.route("/api/po/<string:po_no>")
 def get_po(po_no):
     conn = get_db_connection()
@@ -506,6 +508,7 @@ def get_po(po_no):
     cursor.close()
     conn.close()
     return jsonify({"found": True, "header": dict(po), "items": items})
+
 @app.route("/api/inbound/save", methods=["POST"])
 def save_inbound():
     if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
@@ -545,7 +548,6 @@ def save_inbound():
                 ON CONFLICT (sku) DO UPDATE SET stock = inventory_items.stock + EXCLUDED.stock, spec = EXCLUDED.spec, color = EXCLUDED.color
             """, (sku, item.get("name"), item.get("size"), item.get("color"), unit_price, unit_price * 1.5, actual_qty))
 
-        # 【關鍵修復】確保進貨單儲存時，同步建立應付帳款紀錄供查詢與列印
         v_display = f"{v_id} {v_name}".strip() if v_id else v_name
         inbound_date = data.get("inbound_date")
         cursor.execute("""
@@ -561,6 +563,7 @@ def save_inbound():
         return jsonify({"status": "success"})
     except Exception as e: 
         return jsonify({"status": "error", "message": str(e)})
+
 @app.route("/api/inbound/<string:in_no>")
 def get_inbound(in_no):
     conn = get_db_connection()
@@ -576,6 +579,60 @@ def get_inbound(in_no):
     cursor.close()
     conn.close()
     return jsonify({"found": True, "header": dict(order), "items": items})
+
+@app.route("/api/so/save", methods=["POST"])
+def save_so():
+    if "user_id" not in session: return jsonify({"status": "error", "message": "請先登入"})
+    data = request.get_json()
+    so_no = data.get("so_no")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sales_orders WHERE so_number = %s", (so_no,))
+        cursor.execute("DELETE FROM sales_items WHERE so_number = %s", (so_no,))
+        
+        grand_total = float(data.get("grand_total") or 0)
+        deposit_paid = float(data.get("deposit_paid") or 0)
+        balance_due = max(0, grand_total - deposit_paid)
+
+        cursor.execute("""
+            INSERT INTO sales_orders VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (so_no, data.get("sales_person"), data.get("order_date"), data.get("customer_code"),
+              data.get("customer_name"), data.get("currency"), grand_total, deposit_paid,
+              data.get("pay_method", "現金"), balance_due, data.get("remark"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        
+        for item in data.get("items", []):
+            qty = int(item.get("qty") or 0)
+            unit_price = float(item.get("unit_price") or 0)
+            subtotal = qty * unit_price
+            cursor.execute("""
+                INSERT INTO sales_items (so_number, model, product_name, specification, color, quantity, unit_price, subtotal, remarks) 
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (so_no, item.get("model"), item.get("name"), item.get("size"), item.get("color"),
+                  qty, unit_price, subtotal, item.get("remarks")))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route("/api/so/<string:so_no>")
+def get_so(so_no):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM sales_orders WHERE so_number = %s", (so_no,))
+    so = cursor.fetchone()
+    if not so:
+        cursor.close()
+        conn.close()
+        return jsonify({"found": False, "message": "找不到客戶訂單"})
+    cursor.execute("SELECT model, product_name as name, specification as size, color, quantity as qty, unit_price, subtotal as total, remarks FROM sales_items WHERE so_number = %s", (so_no,))
+    items = [dict(r) for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return jsonify({"found": True, "header": dict(so), "items": items})
 
 @app.route("/api/delivery/save", methods=["POST"])
 def save_delivery():
@@ -730,7 +787,6 @@ def save_inventory_transaction():
         return jsonify({"success": True, "message": f"【{ttype}】單據登錄成功！結轉 COGS: ${cogs:,.0f}"})
     except Exception as e: return jsonify({"success": False, "message": str(e)})
 
-# --- 業務業績與管銷係數自動計算 API ---
 @app.route("/api/sales/performance")
 def get_sales_performance():
     conn = get_db_connection()
@@ -820,8 +876,8 @@ def save_voucher():
         cursor.execute("DELETE FROM vouchers WHERE voucher_no = %s", (v_no,))
         cursor.execute("DELETE FROM voucher_items WHERE voucher_no = %s", (v_no,))
         cursor.execute("INSERT INTO vouchers VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                   (v_no, data.get("voucher_date"), data.get("voucher_type"), data.get("summary"),
-                    data.get("preparer"), total_dr, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                       (v_no, data.get("voucher_date"), data.get("voucher_type"), data.get("summary"),
+                        data.get("preparer"), total_dr, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         for it in items:
             cursor.execute("INSERT INTO voucher_items (voucher_no, account_code, account_name, debit, credit) VALUES (%s, %s, %s, %s, %s)",
                            (v_no, it.get("account_code"), it.get("account_name"), float(it.get("debit", 0)), float(it.get("credit", 0))))
@@ -854,6 +910,94 @@ def get_finance_reports():
     cursor.close()
     conn.close()
     return jsonify({"trial_balance": [dict(r) for r in v_items]})
+
+@app.route("/api/creditcard/list")
+def get_creditcard_list():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM credit_card_txns ORDER BY txn_date DESC")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/creditcard/save", methods=["POST"])
+def save_creditcard_txn():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO credit_card_txns (order_id, customer_name, txn_type, amount, auth_code, card_last4, txn_date, note, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (data.get("order_id"), data.get("customer_name"), data.get("txn_type", "刷卡收入"),
+              data.get("amount", 0), data.get("auth_code"), data.get("card_last4"),
+              data.get("txn_date"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 信用卡交易紀錄儲存成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/creditcard/delete/<int:txn_id>", methods=["POST"])
+def delete_creditcard_txn(txn_id):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM credit_card_txns WHERE txn_id = %s", (txn_id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/invoices/list")
+def get_invoices_list():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM invoices ORDER BY invoice_date DESC")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/invoices/save", methods=["POST"])
+def save_invoice():
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO invoices (invoice_no, invoice_date, invoice_type, party_type, entity_name, tax_id, sales_amount, tax_amount, total_amount, status, note, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (invoice_no) DO UPDATE SET
+                invoice_date = EXCLUDED.invoice_date, invoice_type = EXCLUDED.invoice_type, party_type = EXCLUDED.party_type,
+                entity_name = EXCLUDED.entity_name, tax_id = EXCLUDED.tax_id, sales_amount = EXCLUDED.sales_amount,
+                tax_amount = EXCLUDED.tax_amount, total_amount = EXCLUDED.total_amount, status = EXCLUDED.status, note = EXCLUDED.note
+        """, (data.get("invoice_no"), data.get("invoice_date"), data.get("invoice_type"), data.get("party_type"),
+              data.get("customer_name"), data.get("tax_id"), data.get("sales_amount", 0), data.get("tax_amount", 0),
+              (data.get("sales_amount", 0) + data.get("tax_amount", 0)), data.get("status", "正常"), data.get("note"), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 發票資料儲存成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/invoices/delete/<string:inv_no>", methods=["POST"])
+def delete_invoice(inv_no):
+    if "user_id" not in session: return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM invoices WHERE invoice_no = %s", (inv_no,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 發票刪除成功！"})
+    except Exception as e: return jsonify({"success": False, "message": str(e)})
 
 @app.route("/api/ar/search/<string:order_id>")
 def search_ar_record(order_id):
@@ -1056,7 +1200,6 @@ def get_finance_summary():
         "total_ar": total_ar, "collected_ar": collected_ar, "uncollected_ar": total_ar - collected_ar
     })
 
-
 # --- 供應商管理頁面 ---
 @app.route("/suppliers")
 def suppliers_page():
@@ -1103,2470 +1246,10 @@ def edit_supplier(code):
     except Exception as e: print(e)
     return redirect(url_for("suppliers_page"))
 
-
 # ==================== 前端樣板 (HTML) ====================
-
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <title>系統登入 - 珮藏居傢俱管理系統</title>
-  <style>
-    body { background: #0f172a; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; margin: 0; }
-    .card { background: #fff; padding: 40px; border-radius: 12px; width: 100%; max-width: 400px; box-shadow: 0 20px 25px rgba(0,0,0,0.3); border-top: 4px solid #c59b27; }
-    h2 { color: #0f172a; margin-bottom: 6px; font-size: 20px; }
-    p { color: #64748b; font-size: 13px; margin-bottom: 24px; }
-    .form-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 4px; }
-    label { font-size: 12.5px; font-weight: 600; color: #334155; }
-    input { padding: 8px 12px; border: 1px solid #94a3b8; border-radius: 4px; font-size: 14px; outline: none; }
-    button { background: #c59b27; color: #fff; border: none; padding: 10px; width: 100%; font-weight: 700; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 10px; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h2>珮藏居傢俱有限公司</h2>
-    <p>請輸入授權帳號與密碼進行登入</p>
-    <form method="POST">
-      <div class="form-group"><label>帳號</label><input type="text" name="username" required></div>
-      <div class="form-group"><label>密碼</label><input type="password" name="password" required></div>
-      <button type="submit">登入系統</button>
-    </form>
-  </div>
-</body>
-</html>
-"""
-
-MAIN_HTML = """
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>珮藏居傢俱有限公司 - 企業全方位管理系統</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    :root { --primary: #0f172a; --brand: #c59b27; --border: #cbd5e1; --text: #1e293b; --bg-main: #f8fafc; }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif; }
-    body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
-    .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
-    
-    .nav-header-wrapper { background: #0f172a; border-bottom: 3px solid var(--brand); padding: 10px 20px; }
-    .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
-    .nav-group-row:last-child { border-bottom: none; }
-    .nav-group-title { color: #f59e0b; font-size: 11.5px; font-weight: 700; min-width: 120px; display: inline-flex; align-items: center; gap: 4px; }
-    .nav-group-buttons { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
-
-    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; transition: all 0.2s ease; }
-    .tab-btn:hover { background: #334155; color: #fff; }
-    .tab-btn.active { background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(197, 155, 39, 0.4); }
-    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; }
-    .btn-supplier-link:hover { background: #0369a1; color: #fff; }
-
-    .po-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--brand); }
-    .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
-    .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
-    
-    .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.5; }
-    .company-name-top { font-size: 14px; font-weight: 700; color: #f59e0b; margin-bottom: 3px; }
-    .company-mid-row { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 3px; }
-    .company-address { font-size: 11px; color: #94a3b8; }
-    
-    form { padding: 25px 35px 45px 35px; }
-    .section-block { margin-bottom: 18px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-    .section-title { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 14px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; display: flex; align-items: center; gap: 6px; }
-    .section-title::before { content: ""; width: 4px; height: 13px; background: var(--brand); border-radius: 2px; }
-    
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
-    .form-group { display: flex; flex-direction: column; gap: 5px; }
-    label { font-size: 12px; font-weight: 600; color: #475569; }
-    .required::after { content: " *"; color: #dc2626; }
-    
-    input, select, textarea { padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); outline: none; width: 100%; transition: border-color 0.2s, box-shadow 0.2s; }
-    input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(197, 155, 39, 0.15); }
-    .readonly { background: #f8fafc; color: #475569; font-weight: 600; }
-    
-    .items-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 8px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
-    .items-table th { background: #f8fafc; color: #334155; font-size: 12px; padding: 10px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 600; }
-    .items-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; vertical-align: middle; font-size: 12.5px; background: #fff; }
-    .items-table tr:last-child td { border-bottom: none; }
-    
-    .input-qty { text-align: center; } .input-price { text-align: right; } .input-total { text-align: right; }
-    .item-remarks { border: none !important; background: transparent !important; font-size: 11.5px; color: #475569; padding: 2px !important; }
-    
-    .btn-add-item { background: #0f172a; color: #fff; border: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
-    .btn-del-item { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 3px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; }
-    .btn-query { background: #0f172a; color: #fff; border: none; padding: 8px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
-    
-    .floating-action-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-top: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: center; gap: 10px; z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.06); }
-    .btn-submit { background: linear-gradient(135deg, var(--brand) 0%, #a68120 100%); color: #fff; font-size: 13px; font-weight: 700; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(197,155,39,0.3); }
-    .btn-print { background: #475569; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
-    .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
-    .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
-    
-    .app-view { display: none; } .app-view.active { display: block; }
-    
-    @media print { 
-      .nav-header-wrapper, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } 
-      body { background-color: #fff; padding: 0; } 
-      .container { box-shadow: none; border: none; width: 100%; max-width: 100%; } 
-      form { padding: 10px; } 
-    }
-  </style>
-</head>
-<body>
-
-<div class="container" id="appContainer">
-  <div class="po-header">
-    <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ENTERPRISE MANAGEMENT SYSTEM (當前使用者: {{ user_name }})</div></div>
-    <div class="po-company-info">
-      <div class="company-name-top">珮藏居傢俱有限公司</div>
-      <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
-      <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
-    </div>
-  </div>
-
-  <div class="nav-header-wrapper">
-    <div class="nav-group-row">
-      <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
-      <div class="nav-group-buttons">
-        <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
-        <a href="{{ url_for('suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-truck-field"></i> 供應商管理</a>
-      </div>
-    </div>
-    <div class="nav-group-row">
-      <span class="nav-group-title"><i class="fa-solid fa-boxes-stacked"></i> 採購與進貨：</span>
-      <div class="nav-group-buttons">
-        <button type="button" class="tab-btn active" id="btnTabPurchase" onclick="switchTab('purchase')">📄 採購單</button>
-        <button type="button" class="tab-btn" id="btnTabInbound" onclick="switchTab('inbound')">📦 進貨驗收</button>
-      </div>
-    </div>
-    <div class="nav-group-row">
-      <span class="nav-group-title"><i class="fa-solid fa-cart-shopping"></i> 訂單與銷貨：</span>
-      <div class="nav-group-buttons">
-        <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
-        <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
-        <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績與管銷</button>
-      </div>
-    </div>
-    
-    {% if is_accountant %}
-    <div class="nav-group-row" style="background: rgba(197, 155, 39, 0.15); border-radius: 6px; padding: 4px 8px;">
-      <span class="nav-group-title text-warning"><i class="fa-solid fa-calculator"></i> 帳款與財務 (會計專用)：</span>
-      <div class="nav-group-buttons">
-        <button type="button" class="tab-btn" id="btnTabAp" onclick="switchTab('ap')">💰 應付帳款</button>
-        <button type="button" class="tab-btn" id="btnTabApPro" onclick="switchTab('apPro')">📤 專業應付</button>
-        <button type="button" class="tab-btn" id="btnTabAr" onclick="switchTab('ar')">💳 應收帳款</button>
-        <button type="button" class="tab-btn" id="btnTabArPro" onclick="switchTab('arPro')">📥 專業應收</button>
-        <button type="button" class="tab-btn" id="btnTabPrintCenter" onclick="switchTab('printCenter')">🖨️ 司機運費對帳</button>
-        <button type="button" class="tab-btn" id="btnTabFinance" onclick="switchTab('finance')">📈 財務與傳票</button>
-      </div>
-    </div>
-    {% endif %}
-
-    <div class="nav-group-row">
-      <span class="nav-group-title"><i class="fa-solid fa-warehouse"></i> 庫存與行政：</span>
-      <div class="nav-group-buttons">
-        <button type="button" class="tab-btn" id="btnTabInventory" onclick="switchTab('inventory')">📊 庫存規格顏色</button>
-        <button type="button" class="tab-btn" id="btnTabTrans" onclick="switchTab('trans')">📑 進退/銷退</button>
-        <button type="button" class="tab-btn" id="btnTabCreditCard" onclick="switchTab('creditCard')">💳 刷卡/退刷</button>
-        <button type="button" class="tab-btn" id="btnTabInvoice" onclick="switchTab('invoice')">🧾 發票系統</button>
-        <button type="button" class="tab-btn" id="btnTabHr" onclick="switchTab('hr')">👥 人事名冊</button>
-        {% if is_accountant %}
-        <button type="button" class="tab-btn border border-warning" id="btnTabPayroll" onclick="switchTab('payroll')">💵 薪資系統 (會計)</button>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-
-  <!-- 1. 採購單系統 -->
-  <div id="purchaseView" class="app-view active">
-    <form id="purchaseForm" onsubmit="handlePoSubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 採購基本資料與查詢修改</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">採購人員</label><input type="text" id="po_buyer_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">訂購日期</label><input type="date" id="po_order_date" required></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">交貨日期</label><input type="date" id="po_delivery_date" required></div>
-          <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
-          <div class="form-group"><label>廠商編號</label><input type="text" id="po_vendor_id" onblur="lookupVendorName('po')"></div>
-          <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" required></div>
-          <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">幣別</label><select id="po_currency" required onchange="calculatePoTotals()"><option value="NTD" selected>NTD</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="RMB">RMB</option><option value="JPY">JPY</option></select></div>
-        </div>
-      </div>
-      <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細 (輸入型號自動帶出規格顏色)</div>
-          <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
-        </div>
-        <table class="items-table">
-          <thead><tr><th style="width:14%;">型號</th><th style="width:18%;">品名</th><th style="width:12%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
-          <tbody id="poItemsBody"></tbody>
-          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總金額：</td><td colspan="2" style="font-weight:bold;"><span id="poGrandTotalText">0.00</span> <span id="poCurrencyLabel">NTD</span></td></tr></tfoot>
-        </table>
-      </div>
-      <div class="section-block">
-        <div class="section-title">三、 付款與裝運設定</div>
-        <div class="grid-2">
-          <div class="form-group"><label>訂金比例 (%) / 金額</label><div style="display:flex; gap:8px;"><input type="number" id="po_dep_pct" style="width:80px;" oninput="calculatePoTotals()"><input type="text" id="po_dep_amt" class="readonly" readonly style="flex:1;"></div></div>
-          <div class="form-group"><label>尾款比例 (%) / 金額</label><div style="display:flex; gap:8px;"><input type="number" id="po_bal_pct" class="readonly" style="width:80px;" readonly><input type="text" id="po_bal_amt" class="readonly" readonly style="flex:1;"></div></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label>Shipping Mark</label><input type="text" id="po_shipping_mark"></div>
-          <div class="form-group"><label>Packing</label><input type="text" id="po_packing"></div>
-        </div>
-        <div class="form-group" style="margin-top:12px;"><label class="required">Bank Information</label><textarea id="po_bank_info" rows="2" required></textarea></div>
-      </div>
-    </form>
-  </div>
-
-  <!-- 2. 進貨驗收系統 -->
-  <div id="inboundView" class="app-view">
-    <form id="inboundForm" onsubmit="handleInboundSubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 進貨基本資料與採購單轉入</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px;">
-          <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
-          <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
-          <div class="form-group"><label>廠商編號</label><div style="display:flex; gap:6px;"><input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;"><div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div></div>
-      </div>
-      <div class="section-block">
-        <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
-        <table class="items-table">
-          <thead><tr><th style="width:12%;">型號</th><th style="width:16%;">品名</th><th style="width:11%;">規格</th><th style="width:11%;">顏色</th><th style="width:12%;">入庫倉庫</th><th style="width:6%;">訂購</th><th style="width:7%;">實際</th><th style="width:11%;">單價</th><th style="width:12%;">金額</th></tr></thead>
-          <tbody id="inItemsBody"></tbody>
-          <tfoot><tr><td colspan="8" style="text-align:right; font-weight:bold;">總進貨金額：</td><td style="font-weight:bold;"><span id="inGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-    </form>
-  </div>
-
-  <!-- 3. 客戶訂單系統 -->
-  <div id="soView" class="app-view">
-    <form id="soForm" onsubmit="handleSoSubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 客戶訂單基本資料與訂金設定</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">業務人員</label><input type="text" id="so_sales_person" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">訂單編號</label><div style="display:flex; gap:6px;"><input type="text" id="so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="querySoRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">訂單日期</label><input type="date" id="so_order_date" required></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px;">
-          <div class="form-group"><label>客戶編號</label><input type="text" id="so_customer_code" onblur="lookupCustomerName()"></div>
-          <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="so_customer_name" required></div>
-          <div class="form-group"><label class="required">幣別</label><select id="so_currency" required><option value="NTD" selected>NTD</option><option value="USD">USD</option></select></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
-          <div class="form-group"><label class="required">付款方式 (訂金)</label><select id="so_pay_method" class="form-select form-select-sm"><option value="現金" selected>現金</option><option value="匯款">匯款</option><option value="信用卡">信用卡</option><option value="支票">支票</option></select></div>
-          <div class="form-group"><label class="required">已付訂金 ($)</label><input type="number" id="so_deposit_paid" class="form-control form-control-sm" value="0" step="0.01" oninput="calculateSoTotals()"></div>
-          <div class="form-group"><label class="text-danger fw-bold">剩餘未付尾款 ($)</label><input type="number" id="so_balance_due" class="form-control form-control-sm readonly text-danger fw-bold" value="0" readonly></div>
-        </div>
-      </div>
-      <div class="section-block">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 訂單品項明細 (含規格與顏色)</div>
-          <button type="button" class="btn-add-item" onclick="addSoItemRow()">＋ 新增品項</button>
-        </div>
-        <table class="items-table">
-          <thead><tr><th style="width:14%;">型號</th><th style="width:18%;">品名</th><th style="width:12%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
-          <tbody id="soItemsBody"></tbody>
-          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總訂單金額：</td><td colspan="2" style="font-weight:bold;"><span id="soGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-      <div class="section-block"><div class="form-group"><label>備註說明</label><textarea id="so_remark" rows="2"></textarea></div></div>
-    </form>
-  </div>
-
-  <!-- 4. 銷貨出貨系統 -->
-  <div id="deliveryView" class="app-view">
-    <form id="deliveryForm" onsubmit="handleDeliverySubmit(event)">
-      <div class="section-block">
-        <div class="section-title">一、 出貨基本資料與訂單轉入</div>
-        <div class="grid-3">
-          <div class="form-group"><label class="required">出貨人員</label><input type="text" id="do_shipper_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">出貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="do_number" required style="flex:1;"><button type="button" class="btn-query" onclick="queryDeliveryRecord()">🔍 查詢</button></div></div>
-          <div class="form-group"><label class="required">出貨日期</label><input type="date" id="do_date" required></div>
-        </div>
-        <div class="grid-3" style="margin-top:12px;">
-          <div class="form-group"><label class="required">客戶訂單編號 (SO)</label><div style="display:flex; gap:6px;"><input type="text" id="do_so_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromSo()">📥 轉入SO</button></div></div>
-          <div class="form-group"><label>客戶編號</label><input type="text" id="do_customer_code"></div>
-          <div class="form-group"><label class="required">客戶名稱</label><input type="text" id="do_customer_name" class="readonly" readonly required></div>
-        </div>
-        <div class="grid-2" style="margin-top:12px;">
-          <div class="form-group"><label class="required">送貨司機 / 倉別</label><select id="do_driver" class="form-select form-select-sm" required><option value="大蔡" selected>大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option></select></div>
-          <div class="form-group"><label class="required">運費金額 ($)</label><input type="number" id="do_manual_freight" class="form-control form-control-sm" value="0" min="0" required></div>
-        </div>
-      </div>
-      <div class="section-block">
-        <div class="section-title">二、 出貨明細與出貨倉庫扣庫存</div>
-        <table class="items-table">
-          <thead><tr><th style="width:14%;">型號</th><th style="width:18%;">品名</th><th style="width:12%;">規格</th><th style="width:11%;">顏色</th><th style="width:12%;">出貨倉庫</th><th style="width:7%;">數量</th><th style="width:10%;">單價</th><th style="width:11%;">金額</th></tr></thead>
-          <tbody id="doItemsBody"></tbody>
-          <tfoot><tr><td colspan="7" style="text-align:right; font-weight:bold;">總出貨金額：</td><td style="font-weight:bold;"><span id="doGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-    </form>
-  </div>
-
-  <!-- 5. 庫存規格顏色管理系統 -->
-  <div id="inventoryView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📊 庫存品項、規格與顏色管理（新增或修改）</h6>
-        <form id="inventoryForm" onsubmit="handleInventorySave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-md-3"><label class="form-label">商品型號 (SKU) *</label><input type="text" id="invSku" class="form-control form-control-sm" placeholder="例: 706004S" required></div>
-            <div class="col-md-3"><label class="form-label">商品名稱 *</label><input type="text" id="invName" class="form-control form-control-sm" placeholder="品名" required></div>
-            <div class="col-md-3"><label class="form-label text-primary fw-bold">規格</label><input type="text" id="invSpec" class="form-control form-control-sm" placeholder="規格尺寸"></div>
-            <div class="col-md-3"><label class="form-label text-primary fw-bold">顏色</label><input type="text" id="invColor" class="form-control form-control-sm" placeholder="顏色"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-md-3"><label class="form-label">進貨成本 ($)</label><input type="number" id="invCost" class="form-control form-control-sm" value="0" step="0.01"></div>
-            <div class="col-md-3"><label class="form-label">建議售價 ($)</label><input type="number" id="invPrice" class="form-control form-control-sm" value="0" step="0.01"></div>
-            <div class="col-md-2"><label class="form-label">現有庫存量</label><input type="number" id="invStock" class="form-control form-control-sm" value="0"></div>
-            <div class="col-md-2"><label class="form-label">安全庫存</label><input type="number" id="invSafety" class="form-control form-control-sm" value="10"></div>
-            <div class="col-md-2 d-flex align-items-end gap-1">
-              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetInvForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📦 庫存規格與顏色清單</h6>
-        <div class="d-flex gap-2">
-          <input type="text" id="invSearchBox" class="form-control form-control-sm" placeholder="搜尋型號、名稱、顏色..." oninput="filterInventory()" style="width:220px;">
-          <button type="button" class="btn-query btn-sm" onclick="loadInventory()">🔄 重新整理</button>
-        </div>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>型號/SKU</th><th>商品名稱</th><th>規格</th><th>顏色</th><th>成本</th><th>售價</th><th>庫存量</th><th>安全庫存</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="inventoryTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 6. 客戶建立系統 (含地址) -->
-  <div id="customerView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📇 客戶資料建檔與維護（含地址）</h6>
-        <form id="customerForm" onsubmit="handleCustomerSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">客戶代號 *</label><input type="text" id="custCode" class="form-control form-control-sm" placeholder="例: C004" required></div>
-            <div class="col-3"><label class="form-label">客戶名稱 / 抬頭 *</label><input type="text" id="custName" class="form-control form-control-sm" placeholder="客戶姓名或公司" required></div>
-            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="custTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
-            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="custPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">付款條件</label><input type="text" id="custTerms" class="form-control form-control-sm" value="月結30天"></div>
-            <div class="col-6"><label class="form-label text-primary">客戶地址</label><input type="text" id="custAddress" class="form-control form-control-sm" placeholder="完整通訊地址"></div>
-            <div class="col-3 d-flex align-items-end gap-1">
-              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存客戶</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetCustForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📋 客戶主檔清單</h6>
-        <button class="btn-query btn-sm" onclick="loadCustomers()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>客戶代號</th><th>客戶名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th>客戶地址</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="custTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 7. 進退/銷退單據系統 -->
-  <div id="transView" class="app-view">
-    <form id="transForm" onsubmit="event.preventDefault(); submitTransaction();">
-      <div class="inventory-group p-3 border rounded bg-light">
-        <span class="fw-bold text-success d-block mb-2">📑 建立進銷存交易單據 (含訂單編號與客戶資訊)：</span>
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">單據類型 *</label><select id="transType" class="form-select form-select-sm fw-bold text-primary"><option value="銷貨" selected>📦 銷貨 (自動扣庫存 & 結轉銷貨成本)</option><option value="進貨">📥 進貨 (增加庫存)</option><option value="銷貨退回">↩️ 銷貨退回</option><option value="進貨退回">🔙 進貨退回</option></select></div>
-          <div class="col-6"><label class="form-label">單據日期 *</label><input type="date" id="transDate" class="form-control form-control-sm" required></div>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col-4"><label class="form-label">訂單編號</label><input type="text" id="transOrderId" class="form-control form-control-sm" placeholder="例: 4110213"></div>
-          <div class="col-4"><label class="form-label">客戶代號</label><input type="text" id="transCustCode" class="form-control form-control-sm" placeholder="例: C001"></div>
-          <div class="col-4"><label class="form-label">客戶名稱 *</label><input type="text" id="transCustName" class="form-control form-control-sm" placeholder="客戶抬頭" required></div>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">選擇商品 (SKU) *</label><select id="transSkuSelect" class="form-select form-select-sm" onchange="onSkuSelected()"></select></div>
-          <div class="col-6"><label class="form-label">商品型號 (SKU碼)</label><input type="text" id="transSku" class="form-control form-control-sm bg-white" readonly required></div>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col-4"><label class="form-label">交易數量 *</label><input type="number" id="transQty" class="form-control form-control-sm fw-bold" value="1" min="1" required></div>
-          <div class="col-4"><label class="form-label">單價 ($) *</label><input type="number" id="transPrice" class="form-control form-control-sm fw-bold" value="0" required></div>
-          <div class="col-4"><label class="form-label">KEY IN 人員</label><input type="text" id="transKeyin" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
-        </div>
-      </div>
-      <button type="submit" class="btn btn-success btn-sm w-100 fw-bold py-2 mt-3">💾 確認並送出單據</button>
-    </form>
-  </div>
-
-  <!-- 8. 業務業績與管銷係數自動計算系統 -->
-  <div id="salesPerfView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border no-print">
-        <h6 class="fw-bold text-primary mb-2">🏆 業務業績與管銷係數自動計算</h6>
-        <form id="salesPerfForm" onsubmit="handleSalesPerfSave(event)" style="padding:0;">
-          <input type="hidden" id="perfRecordId">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">業務人員 *</label><input type="text" id="perfSalesPerson" class="form-control form-control-sm" placeholder="業務姓名" required></div>
-            <div class="col-3"><label class="form-label">訂單編號</label><input type="text" id="perfOrderId" class="form-control form-control-sm" placeholder="訂單編號"></div>
-            <div class="col-3"><label class="form-label">成交日期 *</label><input type="date" id="perfOrderDate" class="form-control form-control-sm" required></div>
-            <div class="col-3"><label class="form-label">客戶名稱 *</label><input type="text" id="perfCustomer" class="form-control form-control-sm" placeholder="客戶名稱" required></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">銷售總額 ($) *</label><input type="number" id="perfSalesAmount" class="form-control form-control-sm" value="0" step="0.01" required></div>
-            <div class="col-4"><label class="form-label text-primary fw-bold">管銷係數 (例: 0.15 = 15%) *</label><input type="number" id="perfExpenseCoef" class="form-control form-control-sm" value="0.15" step="0.01" required></div>
-            <div class="col-4"><label class="form-label">抽成比例 (例: 0.05 = 5%)</label><input type="number" id="perfRate" class="form-control form-control-sm" value="0.05" step="0.01"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-12 d-flex justify-content-end gap-1">
-              <button type="submit" id="perfSubmitBtn" class="btn btn-success btn-sm px-4 fw-bold">💾 計算並儲存業績</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetSalesPerfForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
-        <div class="grid-3" style="align-items:end;">
-          <div class="form-group"><label>依業務人員篩選</label><input type="text" id="perfFilterPerson" class="form-control form-control-sm" placeholder="留空代表全部"></div>
-          <div class="form-group"><label>區間 (起)</label><input type="date" id="perfFilterStart" class="form-control form-control-sm"></div>
-          <div class="form-group"><label>區間 (迄)</label><input type="date" id="perfFilterEnd" class="form-control form-control-sm"></div>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-          <button type="button" class="btn-reset" onclick="loadSalesPerformance()" style="padding:5px 10px; font-size:12px;">查詢篩選</button>
-          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印業績報表</button>
-        </div>
-      </div>
-
-      <table class="items-table">
-        <thead><tr><th>業務人員</th><th>訂單編號</th><th>成交日期</th><th>客戶名稱</th><th>銷售總額</th><th>管銷係數</th><th>自動計算淨業績</th><th>抽成獎金</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="salesPerfTableBody"></tbody>
-      </table>
-      <small class="text-muted mt-2 d-block">＊ 淨業績計算公式：銷售總額 × (1 - 管銷係數)</small>
-    </div>
-  </div>
-
-  <!-- 9. 信用卡刷卡與退刷管理系統 -->
-  <div id="creditCardView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">💳 登錄刷卡收入或退刷 (退款)</h6>
-        <form id="ccForm" onsubmit="handleCcSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">交易類型 *</label><select id="ccType" class="form-select form-select-sm fw-bold text-primary"><option value="刷卡收入" selected>💳 刷卡收入 (收款)</option><option value="信用卡退刷">↩️ 信用卡退刷 (退款)</option></select></div>
-            <div class="col-3"><label class="form-label">訂單編號</label><input type="text" id="ccOrderId" class="form-control form-control-sm" placeholder="訂單編號"></div>
-            <div class="col-3"><label class="form-label">客戶名稱 *</label><input type="text" id="ccCustomer" class="form-control form-control-sm" placeholder="客戶名稱" required></div>
-            <div class="col-3"><label class="form-label">交易金額 ($) *</label><input type="number" id="ccAmount" class="form-control form-control-sm fw-bold" value="0" step="0.01" required></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">授權碼 (Auth Code)</label><input type="text" id="ccAuthCode" class="form-control form-control-sm" placeholder="授權碼"></div>
-            <div class="col-3"><label class="form-label">卡號末4碼</label><input type="text" id="ccLast4" class="form-control form-control-sm" placeholder="例如: 8888" maxlength="4"></div>
-            <div class="col-3"><label class="form-label">交易日期 *</label><input type="date" id="ccDate" class="form-control form-control-sm" required></div>
-            <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存刷卡紀錄</button></div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 信用卡刷卡與退刷流水帳</h6>
-        <button class="btn-query btn-sm" onclick="loadCreditCardTxns()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>交易日期</th><th>類型</th><th>訂單編號</th><th>客戶名稱</th><th>授權碼</th><th>卡號末4碼</th><th>金額</th><th>備註</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="ccTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 10. 發票系統 -->
-  <div id="invoiceView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">🧾 發票開立與進項登錄維護</h6>
-        <form id="invoiceForm" onsubmit="handleInvoiceSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">發票號碼 *</label><input type="text" id="invNo" class="form-control form-control-sm" placeholder="例: AB12345678" required></div>
-            <div class="col-3"><label class="form-label">發票日期 *</label><input type="date" id="invDate" class="form-control form-control-sm" required></div>
-            <div class="col-3"><label class="form-label">發票類型 *</label><select id="invType" class="form-select form-select-sm"><option value="二聯式" selected>二聯式</option><option value="三聯式">三聯式</option></select></div>
-            <div class="col-3"><label class="form-label">類別 *</label><select id="partyType" class="form-select form-select-sm"><option value="銷貨發票" selected>銷貨發票 (開立)</option><option value="進項發票">進項發票 (收到)</option></select></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">對象名稱 (客戶/廠商) *</label><input type="text" id="invCust" class="form-control form-control-sm" placeholder="名稱/抬頭" required></div>
-            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="invTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
-            <div class="col-2"><label class="form-label">銷售未稅 ($) *</label><input type="number" id="invSalesAmt" class="form-control form-control-sm" value="0" step="0.01" oninput="calcInvTax()" required></div>
-            <div class="col-2"><label class="form-label">營業稅 (5%) ($)</label><input type="number" id="invTaxAmt" class="form-control form-control-sm" value="0" step="0.01"></div>
-            <div class="col-2"><label class="form-label text-success fw-bold">發票總計 ($)</label><input type="number" id="invTotalAmt" class="form-control form-control-sm readonly text-success fw-bold" readonly></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">狀態</label><select id="invStatus" class="form-select form-select-sm"><option value="正常" selected>正常</option><option value="作廢">作廢</option><option value="折讓">折讓</option></select></div>
-            <div class="col-6"><label class="form-label">備註</label><input type="text" id="invNote" class="form-control form-control-sm" placeholder="備註..."></div>
-            <div class="col-3 d-flex align-items-end"><button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存發票</button></div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 已建檔發票明細清單</h6>
-        <button class="btn-query btn-sm" onclick="loadInvoices()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>發票號碼</th><th>日期</th><th>類型</th><th>類別</th><th>對象名稱</th><th>統編</th><th>未稅金額</th><th>稅額</th><th>總計</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="invoiceTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 11. 人事名冊 (HR) -->
-  <div id="hrView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">👤 員工建檔與維護（含匯款銀行與帳號）</h6>
-        <form id="hrForm" onsubmit="handleEmpSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">員工編號 *</label><input type="text" id="empId" class="form-control form-control-sm" placeholder="例: EMP03" required></div>
-            <div class="col-3"><label class="form-label">員工姓名 *</label><input type="text" id="empName" class="form-control form-control-sm" placeholder="姓名" required></div>
-            <div class="col-3"><label class="form-label">部門</label><input type="text" id="empDept" class="form-control form-control-sm" placeholder="部門"></div>
-            <div class="col-3"><label class="form-label">職稱</label><input type="text" id="empTitle" class="form-control form-control-sm" placeholder="職稱"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="empPhone" class="form-control form-control-sm" placeholder="電話"></div>
-            <div class="col-3"><label class="form-label">到職日</label><input type="date" id="empHireDate" class="form-control form-control-sm"></div>
-            <div class="col-3"><label class="form-label">基本底薪 ($)</label><input type="number" id="empSalary" class="form-control form-control-sm" value="35000" step="100"></div>
-            <div class="col-3"><label class="form-label">狀態</label><select id="empStatus" class="form-select form-select-sm"><option value="在職" selected>在職</option><option value="離職">離職</option></select></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label text-primary">匯款銀行名稱</label><input type="text" id="empBankName" class="form-control form-control-sm" placeholder="例如: 國泰世華 / 中國信託"></div>
-            <div class="col-5"><label class="form-label text-primary">銀行帳號 (匯款用)</label><input type="text" id="empBankAccount" class="form-control form-control-sm" placeholder="例如: 012-3456-7890"></div>
-            <div class="col-3 d-flex align-items-end gap-1">
-              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存員工</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetEmpForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📋 員工名冊清單</h6>
-        <button class="btn-query btn-sm" onclick="loadEmployees()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>職稱</th><th>電話</th><th>底薪</th><th>匯款銀行與帳號</th><th>狀態</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="empTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 12. 薪資發放系統 (Payroll) -->
-  <div id="payrollView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">💵 薪資登錄與匯款資訊維護</h6>
-        <form id="payrollForm" onsubmit="handlePayrollSave(event)" style="padding:0;">
-          <input type="hidden" id="payrollRecordId">
-          <div class="row g-2">
-            <div class="col-4">
-              <label class="form-label">選擇員工 *</label>
-              <select id="payEmpSelect" class="form-select form-select-sm" onchange="onEmpSelectedForPay()" required></select>
-            </div>
-            <div class="col-4"><label class="form-label">員工編號</label><input type="text" id="payEmpId" class="form-control form-control-sm bg-white" readonly></div>
-            <div class="col-4"><label class="form-label">薪資月份 (YYYY-MM) *</label><input type="month" id="payMonth" class="form-control form-control-sm" required></div>
-          </div>
-          
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">基本底薪 ($)</label><input type="number" id="payBase" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-success">職務/全勤津貼 ($)</label><input type="number" id="payAllowance" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-success">加班費 ($)</label><input type="number" id="payOvertime" class="form-control form-control-sm" value="0" oninput="calcPayrollNet()"></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label text-danger">請假/缺勤扣款 ($)</label><input type="number" id="payLeaveDed" class="form-control form-control-sm text-danger" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-danger">員購扣款 ($)</label><input type="number" id="payPurDed" class="form-control form-control-sm text-danger" value="0" oninput="calcPayrollNet()"></div>
-            <div class="col-4"><label class="form-label text-danger">勞健保自付額 ($)</label><input type="number" id="payInsDed" class="form-control form-control-sm text-danger" value="0" oninput="calcPayrollNet()"></div>
-          </div>
-
-          <div class="row g-2 mt-2 align-items-center bg-white p-2 border rounded">
-            <div class="col-6"><label class="form-label text-primary fw-bold fs-6">💰 實際匯款發放金額 ($)：</label></div>
-            <div class="col-6"><input type="number" id="payNet" class="form-control form-control-sm fw-bold text-success fs-5 bg-light" readonly></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-4"><label class="form-label">發放日期 *</label><input type="date" id="payDate" class="form-control form-control-sm" required></div>
-            <div class="col-8"><label class="form-label">備註說明 (匯款明細備註)</label><input type="text" id="payNote" class="form-control form-control-sm" placeholder="備註..."></div>
-          </div>
-          <div class="mt-2 d-flex justify-content-end gap-1">
-            <button type="submit" id="payrollSubmitBtn" class="btn btn-success btn-sm fw-bold px-4">💾 儲存薪資紀錄</button>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="resetPayrollForm()">重設</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📜 歷年薪資發放與匯款記錄</h6>
-        <button class="btn-query btn-sm" onclick="loadPayroll()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>月份</th><th>編號</th><th>姓名</th><th>底薪</th><th>實發匯款金額</th><th>發放日</th><th>匯款帳號資訊</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="payrollTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 13. 專業應付帳款管理 (AP Pro) -->
-  <div id="apProView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="input-group input-group-sm mb-3">
-        <input type="text" id="apSearchId" class="form-control" placeholder="輸入進貨單號查歷史明細或登記付款（如 IN20260901）">
-        <button class="btn btn-outline-primary fw-bold" type="button" onclick="searchAPPro()">🔍 查詢進貨單應付</button>
-      </div>
-
-      <div id="apUnpaidBanner" class="unpaid-alert-card" style="display:none;"></div>
-
-      <form id="apForm" onsubmit="event.preventDefault(); submitAPPro();" style="padding:0;">
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">進貨單號 *</label><input type="text" id="apInboundNo" class="form-control form-control-sm" required></div>
-          <div class="col-6"><label class="form-label">供應商名稱 *</label><input type="text" id="apVendorName" class="form-control form-control-sm" required></div>
-        </div>
-
-        <div class="finance-group p-3 border rounded bg-light mb-3">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <span class="fw-bold text-success">💰 本次付款與結轉資訊：</span>
-            <span class="text-muted small">累計已付總額：<strong id="dispTotalPaidText" class="text-dark">$0</strong></span>
-          </div>
-          <div class="row g-2">
-            <div class="col-4"><label class="form-label">應付總額 ($)</label><input type="number" id="apTotalAmount" class="form-control form-control-sm" value="0" oninput="calcAPPro()"></div>
-            <div class="col-4"><label class="form-label text-primary fw-bold">本次付款金額 ($) *</label><input type="number" id="apPayAmount" class="form-control form-control-sm border-primary" value="0" oninput="calcAPPro()" required></div>
-            <div class="col-4"><label class="form-label text-danger fw-bold">未付餘額 (結轉下期) ($)</label><input type="number" id="apUnpaidAmount" class="form-control form-control-sm bg-light text-danger fw-bold" value="0" readonly></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-6">
-              <label class="form-label">付款方式 *</label>
-              <select id="apPayMethod" class="form-select form-select-sm">
-                <option value="銀行匯款" selected>🏦 銀行匯款</option><option value="現金">💵 現金</option><option value="支票">📑 應付票據</option>
-              </select>
-            </div>
-            <div class="col-6"><label class="form-label">付款日期 *</label><input type="date" id="apPayDate" class="form-control form-control-sm" required></div>
-          </div>
-        </div>
-
-        <div class="mb-3"><label class="form-label">備註說明 (結轉下期備註)</label><input type="text" id="apRemarks" class="form-control form-control-sm" placeholder="例：部分付款，餘額結轉下期..."></div>
-
-        <div id="apHistoryBox" class="history-card" style="display:none;">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="fw-bold text-dark mb-0">📜 該進貨單歷史付款紀錄：</h6><span class="badge bg-secondary" id="apHistoryCountBadge">0 筆</span>
-          </div>
-          <div class="table-responsive bg-white rounded border">
-            <table class="table table-sm table-hover text-center align-middle mb-0" style="font-size:11.5px;">
-              <thead class="table-light"><tr><th>付款日期</th><th>方式</th><th>付款金額</th><th>備註</th></tr></thead>
-              <tbody id="apHistoryListBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="mt-3">
-          <button type="submit" id="apSaveBtn" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 儲存並進行應付銷帳（未付自動結轉下期）</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 14. 專業應收帳款管理 (AR Pro) -->
-  <div id="arProView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="input-group input-group-sm mb-3">
-        <input type="text" id="arSearchId" class="form-control" placeholder="輸入訂單編號查歷史明細或新增再次收款（如 4110213）">
-        <button class="btn btn-outline-primary fw-bold" type="button" onclick="searchAR()">🔍 查詢單據歷史</button>
-      </div>
-
-      <div id="arUnpaidBanner" class="unpaid-alert-card" style="display:none;"></div>
-
-      <form id="arForm" onsubmit="event.preventDefault(); submitAR();" style="padding:0;">
-        <div class="row g-2 mb-2">
-          <div class="col-6"><label class="form-label">訂單編號 *</label><input type="text" id="arOrderId" class="form-control form-control-sm" required></div>
-          <div class="col-6"><label class="form-label">客戶名稱 *</label><input type="text" id="arCustomer" class="form-control form-control-sm" required></div>
-        </div>
-
-        <div class="finance-group p-3 border rounded bg-light mb-3">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <span class="fw-bold text-success">💰 本次收款資訊：</span>
-            <span class="text-muted small">累計已收總額：<strong id="dispTotalCollectedText" class="text-dark">$0</strong></span>
-          </div>
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">總金額 ($)</label><input type="number" id="arSalesAmount" class="form-control form-control-sm" value="0" oninput="calcAR()"></div>
-            <div class="col-3"><label class="form-label">已收訂金 ($)</label><input type="number" id="arDeposit" class="form-control form-control-sm" value="0" oninput="calcAR()"></div>
-            <div class="col-3"><label class="form-label text-primary fw-bold">本次收款 ($) *</label><input type="number" id="arReceiveAmount" class="form-control form-control-sm border-primary" value="0" oninput="calcAR()" required></div>
-            <div class="col-3"><label class="form-label text-danger fw-bold">剩餘未收 ($)</label><input type="number" id="arUnpaidAmount" class="form-control form-control-sm bg-light text-danger fw-bold" value="0" readonly></div>
-          </div>
-
-          <div class="row g-2 mt-2">
-            <div class="col-6">
-              <label class="form-label">收款方式 *</label>
-              <select id="arPayType" class="form-select form-select-sm" onchange="toggleARCheckFields()">
-                <option value="現金" selected>💵 現金 (司機代收)</option><option value="匯款">🏦 匯款</option><option value="刷卡">💳 刷卡</option><option value="應收票據">📑 應收票據</option>
-              </select>
-            </div>
-            <div class="col-6"><label class="form-label">收款日期 *</label><input type="date" id="arReceiveDate" class="form-control form-control-sm" required></div>
-          </div>
-
-          <div id="boxARCheck" class="check-box mt-2" style="display:none;">
-            <div class="row g-2">
-              <div class="col-6"><label class="form-label text-danger">支票號碼 *</label><input type="text" id="arCheckNo" class="form-control form-control-sm"></div>
-              <div class="col-6"><label class="form-label text-danger">到期日 *</label><input type="date" id="arCheckDueDate" class="form-control form-control-sm"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="p-2 border rounded bg-light mb-2">
-          <div class="row g-2">
-            <div class="col-4">
-              <label class="form-label">運送人員/倉別</label>
-              <select id="arDriver" class="form-select form-select-sm" onchange="updateDriverLogic()">
-                <option value="大蔡">大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option>
-              </select>
-            </div>
-            <div class="col-4"><label class="form-label">送貨地區</label><select id="arDriverArea" class="form-select form-select-sm" onchange="calcFreight()"></select></div>
-            <div class="col-4"><label class="form-label text-danger">運費 ($)</label><input type="number" id="arFreight" class="form-control form-control-sm" value="0"></div>
-          </div>
-          <div class="row g-2 mt-1">
-            <div class="col-6"><label class="form-label">舊貨回收費 ($)</label><input type="number" id="arOldItemFee" class="form-control form-control-sm" value="0"></div>
-            <div class="col-6"><label class="form-label">KEY IN 人員</label><input type="text" id="arKeyinUser" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
-          </div>
-        </div>
-
-        <div class="mb-3"><label class="form-label">備註說明</label><input type="text" id="arNote" class="form-control form-control-sm"></div>
-
-        <div id="arHistoryBox" class="history-card" style="display:none;">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="fw-bold text-dark mb-0">📜 該訂單歷史獨立收款清單：</h6><span class="badge bg-secondary" id="arHistoryCountBadge">0 筆</span>
-          </div>
-          <div class="table-responsive bg-white rounded border">
-            <table class="table table-sm table-hover text-center align-middle mb-0" style="font-size:11.5px;">
-              <thead class="table-light"><tr><th>收款日期</th><th>方式</th><th>金額</th><th>票號/到期日</th><th>經辦</th><th>備註</th><th>操作</th></tr></thead>
-              <tbody id="arHistoryListBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="mt-3">
-          <button type="submit" id="arSaveBtn" class="btn btn-success btn-sm w-100 fw-bold py-2">💾 儲存並新增一筆收款紀錄</button>
-          <button type="button" id="arCancelEditBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" style="display:none;" onclick="cancelRowEdit()">❌ 取消修改</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 15. 司機運費對帳系統 -->
-  <div id="printCenterView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 no-print">
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-          <select id="printDriverFilter" class="form-select form-select-sm" style="width: 150px;">
-            <option value="ALL">🚚 全部司機/倉別</option><option value="大蔡">大蔡</option><option value="大生">大生</option><option value="南倉">南倉</option>
-          </select>
-          <div class="d-flex align-items-center gap-1">
-            <input type="date" id="printStartDate" class="form-control form-control-sm" style="width: 130px;">
-            <span>~</span>
-            <input type="date" id="printEndDate" class="form-control form-control-sm" style="width: 130px;">
-          </div>
-          <button class="btn btn-primary btn-sm fw-bold px-3" onclick="loadPrintData()">載入對帳單</button>
-        </div>
-        <button class="btn btn-outline-dark btn-sm fw-bold" onclick="window.print()">🖨️ 列印 / 存為 PDF</button>
-      </div>
-      <div id="printContainer" class="p-3 border rounded bg-white" style="min-height: 250px;">
-        <div class="text-muted text-center py-5">請選取起迄日期並點擊「載入對帳單」以預覽並列印</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 16. 應付帳款系統 -->
-  <div id="apView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
-        <div class="grid-3" style="align-items:end;">
-          <div class="form-group"><label>依單家廠商名稱或代號篩選</label><input type="text" id="ap_filter_vendor" class="form-control form-control-sm" placeholder="輸入廠商名稱/代號..." oninput="loadAP()"></div>
-          <div class="form-group"><label>依歸屬月份 (YYYY-MM)</label><input type="month" id="ap_filter_month" oninput="loadAP()"></div>
-          <div class="form-group"><label>日期區間 (起 ~ 迄)</label><div style="display:flex; gap:4px;"><input type="date" id="ap_filter_start" onchange="loadAP()"><span>~</span><input type="date" id="ap_filter_end" onchange="loadAP()"></div></div>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-          <button type="button" class="btn-reset" onclick="resetApFilter()" style="padding:5px 10px; font-size:12px;">清除篩選</button>
-          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印應付報表</button>
-        </div>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>進貨單號</th><th>進貨日期</th><th>供應商</th><th>應付總額</th><th>付款條件</th><th>預計付款日</th><th>已付金額</th><th>未付餘額 (結轉下期)</th><th>狀態</th><th class="no-print">操作</th></tr></thead>
-        <tbody id="apTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 17. 應收帳款系統 -->
-  <div id="arView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="section-block no-print" style="background:#f8fafc; padding:15px; border-radius:6px; border:1px solid var(--border); margin-bottom:15px;">
-        <div class="grid-3" style="align-items:end;">
-          <div class="form-group"><label>依單家客戶名稱或代號篩選</label><input type="text" id="ar_filter_customer" class="form-control form-control-sm" placeholder="輸入客戶名稱/代號..." oninput="loadAR()"></div>
-          <div class="form-group"><label>依歸屬月份 (YYYY-MM)</label><input type="month" id="ar_filter_month" oninput="loadAR()"></div>
-          <div class="form-group"><label>日期區間 (起 ~ 迄)</label><div style="display:flex; gap:4px;"><input type="date" id="ar_filter_start" onchange="loadAR()"><span>~</span><input type="date" id="ar_filter_end" onchange="loadAR()"></div></div>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-          <button type="button" class="btn-reset" onclick="resetArFilter()" style="padding:5px 10px; font-size:12px;">清除篩選</button>
-          <button type="button" class="btn-print" onclick="window.print()" style="padding:5px 12px; font-size:12px;">🖨️ 列印應收報表</button>
-        </div>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>出貨單號</th><th>出貨日期</th><th>客戶名稱</th><th>應收總額</th><th>付款條件</th><th>預計收款日</th><th>已收金額</th><th>未收餘額</th><th>狀態</th></tr></thead>
-        <tbody id="arTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 18. 財務系統 -->
-  <div id="financeView" class="app-view">
-    <div style="padding:25px 30px;">
-      <div class="card p-3 mb-4 bg-light border no-print">
-        <h6 class="fw-bold text-primary mb-2">📑 會計傳票登錄（應收票據、應付票據、現金/銀行收支傳票）</h6>
-        <form id="voucherForm" onsubmit="handleVoucherSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">傳票編號 *</label><input type="text" id="vNo" class="form-control form-control-sm" placeholder="例: V20260901" required></div>
-            <div class="col-3"><label class="form-label">傳票日期 *</label><input type="date" id="vDate" class="form-control form-control-sm" required></div>
-            <div class="col-3">
-              <label class="form-label">傳票類型 *</label>
-              <select id="vType" class="form-select form-select-sm">
-                <option value="現金收入傳票">現金收入傳票</option>
-                <option value="現金支出傳票">現金支出傳票</option>
-                <option value="銀行收支傳票">銀行收支傳票</option>
-                <option value="轉帳傳票" selected>轉帳傳票 (含票據)</option>
-              </select>
-            </div>
-            <div class="col-3"><label class="form-label">製表人</label><input type="text" id="vPreparer" class="form-control form-control-sm bg-white" value="{{ user_name }}" readonly></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-12"><label class="form-label">摘要說明 *</label><input type="text" id="vSummary" class="form-control form-control-sm" placeholder="例如：收回應收票據 / 支付租金..." required></div>
-          </div>
-
-          <div class="mt-3">
-            <label class="fw-bold text-dark mb-1">傳票會計分錄明細（借貸平衡）：</label>
-            <table class="table table-sm table-bordered bg-white" id="voucherItemsTable">
-              <thead><tr><th>會計科目代號</th><th>會計科目名稱</th><th>借方金額 ($)</th><th>貸方金額 ($)</th><th class="text-center">操作</th></tr></thead>
-              <tbody id="vItemsBody">
-                <tr>
-                  <td><input type="text" class="form-control form-control-sm v-code" value="1101" placeholder="代號"></td>
-                  <td><input type="text" class="form-control form-control-sm v-name" value="現金/銀行存款" placeholder="名稱"></td>
-                  <td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button></td>
-                </tr>
-                <tr>
-                  <td><input type="text" class="form-control form-control-sm v-code" value="1141" placeholder="代號"></td>
-                  <td><input type="text" class="form-control form-control-sm v-name" value="應收票據/應收帳款" placeholder="名稱"></td>
-                  <td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
-                  <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button></td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="2" class="text-end fw-bold">合計：</td>
-                  <td class="fw-bold text-primary" id="vTotalDr">0.00</td>
-                  <td class="fw-bold text-success" id="vTotalCr">0.00</td>
-                  <td class="text-center"><button type="button" class="btn btn-sm btn-dark" onclick="addVoucherItemRow()">＋ 增加分錄</button></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div class="text-end mt-2"><button type="submit" class="btn btn-success btn-sm fw-bold px-4">💾 儲存會計傳票</button></div>
-        </form>
-      </div>
-
-      <div class="row g-3 mb-4">
-        <div class="col-md-6">
-          <div style="background:#f8fafc; border:1px solid var(--border); padding:20px; border-radius:8px;">
-            <h4 style="color:#0f172a; margin-bottom:12px; border-bottom:2px solid var(--brand); padding-bottom:6px;">📈 四大財務報表與試算表摘要</h4>
-            <button class="btn btn-outline-primary btn-sm fw-bold mb-2" onclick="loadFinancialReports()">📊 產生/重新整理報表</button>
-            <div id="finReportsContainer" style="max-height:220px; overflow-y:auto;">
-              <p class="text-muted small">點擊上方按鈕以載入會計科目試算表與損益狀況</p>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <div style="background:#f8fafc; border:1px solid var(--border); padding:20px; border-radius:8px;">
-            <h4 style="color:#0f172a; margin-bottom:12px; border-bottom:2px solid var(--brand); padding-bottom:6px;">📑 已建檔會計傳票清單</h4>
-            <div class="table-responsive" style="max-height:220px; overflow-y:auto;">
-              <table class="table table-sm table-hover bg-white mb-0" style="font-size:11.5px;">
-                <thead><tr><th>傳票號碼</th><th>日期</th><th>類型</th><th>摘要</th><th>金額</th><th class="text-center">操作</th></tr></thead>
-                <tbody id="voucherTableBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 互動付款 Modal -->
-<div id="actionModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
-  <div style="background:#fff; padding:25px; border-radius:8px; width:380px;">
-    <h3 id="modalTitle" style="margin-bottom:12px; font-size:16px; color:#0f172a;">登記付款</h3>
-    <form onsubmit="handleModalSubmit(event)" style="padding:0;">
-      <input type="hidden" id="modalNo"><input type="hidden" id="modalType">
-      <div class="form-group" style="margin-bottom:8px;"><label>供應商名稱</label><input type="text" id="modalName" class="readonly" readonly></div>
-      <div class="form-group" style="margin-bottom:8px;"><label class="required">付款日期</label><input type="date" id="modalDate" required></div>
-      <div class="form-group" style="margin-bottom:8px;"><label class="required">付款金額</label><input type="number" id="modalAmount" step="0.01" required></div>
-      <div class="form-group" style="margin-bottom:8px;"><label class="required">付款方式</label><select id="modalMethod"><option value="銀行匯款">銀行匯款</option><option value="現金">現金</option><option value="支票">支票</option></select></div>
-      <div class="form-group" style="margin-bottom:15px;"><label>備註</label><input type="text" id="modalRemarks"></div>
-      <div style="display:flex; justify-content:flex-end; gap:6px;">
-        <button type="button" class="btn-reset" onclick="closeModal()" style="padding:6px 10px;">取消</button>
-        <button type="submit" class="btn-submit" style="padding:6px 14px;">確認付款</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="floating-action-bar" id="floatingBar">
-  <button type="button" class="btn-submit" onclick="submitCurrentForm()">💾 儲存當前頁面</button>
-  <button type="button" class="btn-print" onclick="window.print()">🖨️ 列印單據</button>
-  <button type="button" class="btn-reset" onclick="resetCurrentForm()">🔄 清空重設</button>
-  <button type="button" class="btn-logout" onclick="window.location.href='/logout'">🚪 登出</button>
-</div>
-
-<script>
-  let currentTab = 'purchase';
-  let warehouseOptionsList = ['八里倉', '南倉', '土城門市倉', '外倉'];
-  let cachedInventory = [];
-  let cachedEmployees = [];
-  let cachedCustomers = [];
-  let arBaseOrder = null;
-  let arEditTargetRow = 0;
-  let apBaseOrder = null;
-
-  window.addEventListener('DOMContentLoaded', () => {
-    ['po_order_date', 'po_delivery_date', 'in_date', 'so_order_date', 'do_date', 'arReceiveDate', 'apPayDate', 'transDate', 'empHireDate', 'payDate', 'perfOrderDate', 'ccDate', 'invDate', 'vDate'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.valueAsDate = new Date();
-    });
-    const mEl = document.getElementById('in_month'); if (mEl) mEl.value = new Date().toISOString().slice(0, 7);
-    const payMEl = document.getElementById('payMonth'); if (payMEl) payMEl.value = new Date().toISOString().slice(0, 7);
-
-    const today = new Date();
-    const firstDayStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-01";
-    const todayStr = today.toISOString().slice(0, 10);
-    const pStart = document.getElementById('printStartDate'); if (pStart) pStart.value = firstDayStr;
-    const pEnd = document.getElementById('printEndDate'); if (pEnd) pEnd.value = todayStr;
-
-    for (let i = 0; i < 4; i++) { addPoItemRow(); addSoItemRow(); }
-    fetch('/api/warehouses').then(r => r.json()).then(d => { if (d && d.length) warehouseOptionsList = d; });
-    loadInventory();
-    loadCustomers();
-    loadEmployees();
-    loadPayroll();
-    loadSalesPerformance();
-    loadCreditCardTxns();
-    loadInvoices();
-    loadVouchers();
-    updateDriverLogic();
-    toggleARCheckFields();
-  });
-
-  function switchTab(tab) {
-    currentTab = tab;
-    const isAccountant = {{ 'true' if is_accountant else 'false' }};
-    const accountantTabs = ['ap', 'apPro', 'ar', 'arPro', 'printCenter', 'finance', 'payroll'];
-    if (accountantTabs.includes(tab) && !isAccountant) {
-      alert("⚠️ 此功能僅限會計人員 (EMP01 / EMP02) 使用！");
-      return;
-    }
-
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
-      const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
-      const view = document.getElementById(t + 'View');
-      if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
-      if(view) view.className = (t === tab) ? 'app-view active' : 'app-view';
-    });
-    if (tab === 'inventory') loadInventory();
-    else if (tab === 'customer') loadCustomers();
-    else if (tab === 'trans') prepareTransForm();
-    else if (tab === 'salesPerf') loadSalesPerformance();
-    else if (tab === 'creditCard') loadCreditCardTxns();
-    else if (tab === 'invoice') loadInvoices();
-    else if (tab === 'hr') loadEmployees();
-    else if (tab === 'payroll') loadPayroll();
-    else if (tab === 'ap') loadAP();
-    else if (tab === 'ar') loadAR();
-    else if (tab === 'finance') { loadFinancialReports(); loadVouchers(); }
-  }
-
-  function autoFillMonth() { const d = document.getElementById('in_date').value; if (d) document.getElementById('in_month').value = d.slice(0, 7); }
-
-  function lookupVendorName(type) {
-    const vId = document.getElementById(type === 'po' ? 'po_vendor_id' : 'in_vendor_id').value.trim();
-    if (!vId) return;
-    fetch(`/api/vendor/${vId}`).then(r => r.json()).then(res => {
-      if (res.found) document.getElementById(type === 'po' ? 'po_vendor_name' : 'in_vendor_name').value = res.vendor_name;
-    });
-  }
-
-  function lookupCustomerName() {
-    const cId = document.getElementById('so_customer_code').value.trim();
-    if (!cId) return;
-    fetch(`/api/customer/${cId}`).then(r => r.json()).then(res => {
-      if (res.found) document.getElementById('so_customer_name').value = res.customer_name;
-    });
-  }
-
-  function submitCurrentForm() {
-    if (currentTab === 'purchase') document.getElementById('purchaseForm').requestSubmit();
-    else if (currentTab === 'inbound') document.getElementById('inboundForm').requestSubmit();
-    else if (currentTab === 'so') document.getElementById('soForm').requestSubmit();
-    else if (currentTab === 'delivery') document.getElementById('deliveryForm').requestSubmit();
-    else if (currentTab === 'trans') document.getElementById('transForm').requestSubmit();
-    else if (currentTab === 'arPro') document.getElementById('arForm').requestSubmit();
-    else if (currentTab === 'apPro') document.getElementById('apForm').requestSubmit();
-    else if (currentTab === 'inventory') document.getElementById('inventoryForm').requestSubmit();
-    else if (currentTab === 'customer') document.getElementById('customerForm').requestSubmit();
-    else if (currentTab === 'salesPerf') document.getElementById('salesPerfForm').requestSubmit();
-    else if (currentTab === 'creditCard') document.getElementById('ccForm').requestSubmit();
-    else if (currentTab === 'invoice') document.getElementById('invoiceForm').requestSubmit();
-    else if (currentTab === 'hr') document.getElementById('hrForm').requestSubmit();
-    else if (currentTab === 'payroll') document.getElementById('payrollForm').requestSubmit();
-    else if (currentTab === 'finance') document.getElementById('voucherForm').requestSubmit();
-  }
-
-  function resetCurrentForm() {
-    if (currentTab === 'purchase' && confirm("清空採購單？")) { document.getElementById('purchaseForm').reset(); document.getElementById('poItemsBody').innerHTML = ''; for(let i=0;i<4;i++) addPoItemRow(); calculatePoTotals(); }
-    else if (currentTab === 'so' && confirm("清空客戶訂單？")) { document.getElementById('soForm').reset(); document.getElementById('soItemsBody').innerHTML = ''; for(let i=0;i<4;i++) addSoItemRow(); calculateSoTotals(); }
-  }
-
-  function generateWarehouseSelectOptions(selWh) {
-    let opts = '<option value="" disabled selected hidden>倉庫</option>';
-    warehouseOptionsList.forEach(w => { opts += `<option value="${w}" ${w === selWh ? 'selected' : ''}>${w}</option>`; });
-    return opts;
-  }
-
-  // 採購單明細：支援輸入型號後自動帶出規格與顏色，並完美計算總金額
-  function addPoItemRow() {
-    const tbody = document.getElementById('poItemsBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><input type="text" class="po-model" placeholder="輸入型號按離開" onblur="onPoModelBlur(this)"></td>
-      <td><input type="text" class="po-name" placeholder="品名"></td>
-      <td><input type="text" class="po-size" placeholder="規格"></td>
-      <td><input type="text" class="po-color" placeholder="顏色"></td>
-      <td><input type="number" class="po-qty input-qty" min="0" oninput="calculatePoTotals()"></td>
-      <td><input type="number" class="po-price input-price" step="0.01" min="0" oninput="calculatePoTotals()"></td>
-      <td><input type="text" class="po-total readonly input-total" readonly></td>
-      <td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td>`;
-    tbody.appendChild(tr);
-    
-    const rTr = document.createElement('tr');
-    rTr.innerHTML = `<td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" placeholder="備註..."></td>`;
-    tbody.appendChild(rTr);
-    calculatePoTotals();
-  }
-
-  // 輸入型號離開時自動帶出
-  function onPoModelBlur(inputElem) {
-    const skuVal = inputElem.value.trim();
-    if (!skuVal) return;
-    const found = cachedInventory.find(item => item.sku.toLowerCase() === skuVal.toLowerCase());
-    const row = inputElem.closest('tr');
-    if (found) {
-      row.querySelector('.po-name').value = found.name || '';
-      row.querySelector('.po-size').value = found.spec || '';
-      row.querySelector('.po-color').value = found.color || '';
-      if (found.cost && !row.querySelector('.po-price').value) {
-        row.querySelector('.po-price').value = found.cost;
-        calculatePoTotals();
-      }
-    }
-  }
-
-  function calculatePoTotals() {
-    const curr = document.getElementById('po_currency') ? document.getElementById('po_currency').value : 'NTD';
-    const labelEl = document.getElementById('poCurrencyLabel');
-    if (labelEl) labelEl.innerText = curr;
-    
-    let gt = 0;
-    document.querySelectorAll('#poItemsBody tr:not(:nth-child(even))').forEach(row => {
-      const qInput = row.querySelector('.po-qty');
-      const pInput = row.querySelector('.po-price');
-      const tInput = row.querySelector('.po-total');
-      if (!qInput || !pInput) return;
-      
-      const q = parseFloat(qInput.value) || 0;
-      const p = parseFloat(pInput.value) || 0;
-      const t = q * p;
-      if (tInput) tInput.value = t ? t.toLocaleString('zh-TW', {minimumFractionDigits:2}) : '';
-      gt += t;
-    });
-    
-    const gtText = document.getElementById('poGrandTotalText');
-    if (gtText) gtText.innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
-    
-    const depInput = document.getElementById('po_dep_pct');
-    const dep = depInput ? (parseFloat(depInput.value) || 0) : 0;
-    const bal = 100 - dep;
-    
-    const balPctEl = document.getElementById('po_bal_pct');
-    if (balPctEl) balPctEl.value = bal;
-    
-    const depAmtEl = document.getElementById('po_dep_amt');
-    if (depAmtEl) depAmtEl.value = curr ? `${curr} ${(gt * dep / 100).toLocaleString('zh-TW', {minimumFractionDigits:2})}` : '';
-    
-    const balAmtEl = document.getElementById('po_bal_amt');
-    if (balAmtEl) balAmtEl.value = curr ? `${curr} ${(gt * bal / 100).toLocaleString('zh-TW', {minimumFractionDigits:2})}` : '';
-  }
-
-  function queryPoRecord() {
-    const poNo = document.getElementById('po_no').value.trim();
-    if (!poNo) return alert("請輸入採購編號");
-    fetch(`/api/po/${poNo}`).then(r => r.json()).then(res => {
-      if (res.found) {
-        const h = res.header;
-        document.getElementById('po_buyer_name').value = h.purchaser;
-        document.getElementById('po_order_date').value = h.order_date;
-        document.getElementById('po_delivery_date').value = h.delivery_date;
-        document.getElementById('po_vendor_type').value = h.vendor_type;
-        document.getElementById('po_vendor_id').value = h.supplier_code;
-        document.getElementById('po_vendor_name').value = h.supplier_name;
-        document.getElementById('po_vendor_contact').value = h.vendor_contact;
-        document.getElementById('po_currency').value = h.currency;
-        document.getElementById('po_dep_pct').value = h.deposit_pct;
-        document.getElementById('po_shipping_mark').value = h.shipping_mark;
-        document.getElementById('po_packing').value = h.packing;
-        document.getElementById('po_bank_info').value = h.bank_info;
-        const tbody = document.getElementById('poItemsBody'); tbody.innerHTML = '';
-        res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="po-model" value="${it.model||''}" onblur="onPoModelBlur(this)"></td><td><input type="text" class="po-name" value="${it.name||''}"></td><td><input type="text" class="po-size" value="${it.size||''}"></td><td><input type="text" class="po-color" value="${it.color||''}"></td><td><input type="number" class="po-qty input-qty" value="${it.qty||''}" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" value="${it.unit_price||''}" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculatePoTotals();">刪除</button></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
-        });
-        calculatePoTotals();
-        alert("✔ 採購單載入成功！");
-      } else alert(res.message);
-    });
-  }
-
-  function handlePoSubmit(e) {
-    e.preventDefault();
-    let items = [], gt = 0;
-    document.querySelectorAll('#poItemsBody tr:not(:nth-child(even))').forEach(r => {
-      const q = parseFloat(r.querySelector('.po-qty').value) || 0;
-      const p = parseFloat(r.querySelector('.po-price').value) || 0;
-      const t = q * p; gt += t;
-      items.push({
-        model: r.querySelector('.po-model').value, name: r.querySelector('.po-name').value,
-        size: r.querySelector('.po-size').value, color: r.querySelector('.po-color').value,
-        qty: q, unit_price: p, total: t, remarks: r.nextElementSibling.querySelector('.item-remarks').value
-      });
-    });
-    const payload = {
-      buyer_name: document.getElementById('po_buyer_name').value, po_no: document.getElementById('po_no').value,
-      order_date: document.getElementById('po_order_date').value, delivery_date: document.getElementById('po_delivery_date').value,
-      vendor_type: document.getElementById('po_vendor_type').value,
-      vendor_id: document.getElementById('po_vendor_id').value, vendor_name: document.getElementById('po_vendor_name').value,
-      vendor_contact: document.getElementById('po_vendor_contact').value, currency: document.getElementById('po_currency').value,
-      items: items, grand_total: gt, dep_pct: document.getElementById('po_dep_pct').value,
-      dep_amt: document.getElementById('po_dep_amt').value, bal_pct: document.getElementById('po_bal_pct').value,
-      bal_amt: document.getElementById('po_bal_amt').value, shipping_mark: document.getElementById('po_shipping_mark').value,
-      packing: document.getElementById('po_packing').value, bank_info: document.getElementById('po_bank_info').value
-    };
-    fetch('/api/po/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 採購單儲存成功！' : '✖ 失敗：' + res.message));
-  }
-
-  // 進貨驗收
-  function importFromPo() {
-    const poNo = document.getElementById('in_po_no').value.trim();
-    if (!poNo) return alert("請輸入採購編號");
-    fetch(`/api/po/${poNo}`).then(r => r.json()).then(res => {
-      if (res.found) {
-        document.getElementById('in_vendor_id').value = res.header.supplier_code;
-        document.getElementById('in_vendor_name').value = res.header.supplier_name;
-        const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
-        res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="in-model readonly" value="${it.model}" readonly></td><td><input type="text" class="in-name readonly" value="${it.name}" readonly></td><td><input type="text" class="in-size readonly" value="${it.size}" readonly></td><td><input type="text" class="in-color readonly" value="${it.color}" readonly></td><td><select class="in-wh">${generateWarehouseSelectOptions('八里倉')}</select></td><td><input type="text" class="in-ordered readonly" value="${it.qty}" readonly style="text-align:center;"></td><td><input type="number" class="in-actual input-qty" value="${it.qty}" min="0" oninput="calculateInTotals()" required></td><td><input type="text" class="in-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="in-total readonly input-total" readonly></td></tr><tr><td colspan="9" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
-        });
-        calculateInTotals();
-        alert("✔ PO 轉入成功！");
-      } else alert("找不到採購單");
-    });
-  }
-
-  function calculateInTotals() {
-    let gt = 0;
-    document.querySelectorAll('#inItemsBody tr:not(:nth-child(even))').forEach(r => {
-      const q = parseFloat(r.querySelector('.in-actual').value) || 0;
-      const p = parseFloat(r.querySelector('.in-price').value) || 0;
-      const t = q * p; r.querySelector('.in-total').value = t.toLocaleString('zh-TW', {minimumFractionDigits:2}); gt += t;
-    });
-    document.getElementById('inGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
-  }
-
-  function handleInboundSubmit(e) {
-    e.preventDefault();
-    let items = [];
-    document.querySelectorAll('#inItemsBody tr:not(:nth-child(even))').forEach(r => {
-      items.push({
-        warehouse: r.querySelector('.in-wh').value, model: r.querySelector('.in-model').value,
-        name: r.querySelector('.in-name').value, size: r.querySelector('.in-size').value,
-        color: r.querySelector('.in-color').value, ordered_qty: parseFloat(r.querySelector('.in-ordered').value)||0,
-        actual_qty: parseFloat(r.querySelector('.in-actual').value)||0, unit_price: parseFloat(r.querySelector('.in-price').value)||0,
-        remarks: r.nextElementSibling.querySelector('.item-remarks').value
-      });
-    });
-    const payload = {
-      receiver_name: document.getElementById('in_receiver_name').value, inbound_no: document.getElementById('in_no').value,
-      po_no: document.getElementById('in_po_no').value, inbound_date: document.getElementById('in_date').value,
-      month: document.getElementById('in_month').value, vendor_id: document.getElementById('in_vendor_id').value,
-      vendor_name: document.getElementById('in_vendor_name').value, items: items
-    };
-    fetch('/api/inbound/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 進貨驗收存檔成功並已入庫！' : '✖ 失敗'));
-  }
-
-  function queryInboundRecord() {
-    const no = document.getElementById('in_no').value.trim();
-    if (!no) return alert("請輸入進貨單號");
-    fetch(`/api/inbound/${no}`).then(r => r.json()).then(res => {
-      if (res.found) {
-        const h = res.header;
-        document.getElementById('in_receiver_name').value = h.receiver_name;
-        document.getElementById('in_date').value = h.inbound_date;
-        document.getElementById('in_month').value = h.month;
-        document.getElementById('in_po_no').value = h.po_number;
-        document.getElementById('in_vendor_id').value = h.supplier_code;
-        document.getElementById('in_vendor_name').value = h.supplier_name;
-        const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
-        res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="in-model readonly" value="${it.model}" readonly></td><td><input type="text" class="in-name readonly" value="${it.name}" readonly></td><td><input type="text" class="in-size readonly" value="${it.size}" readonly></td><td><input type="text" class="in-color readonly" value="${it.color}" readonly></td><td><select class="in-wh">${generateWarehouseSelectOptions(it.warehouse)}</select></td><td><input type="text" class="in-ordered readonly" value="${it.ordered_qty}" readonly style="text-align:center;"></td><td><input type="number" class="in-actual input-qty" value="${it.actual_qty}" min="0" oninput="calculateInTotals()" required></td><td><input type="text" class="in-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="in-total readonly input-total" readonly></td></tr><tr><td colspan="9" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
-        });
-        calculateInTotals();
-        alert("✔ 進貨單載入成功！");
-      } else alert(res.message);
-    });
-  }
-
-  // 客戶訂單
-  function addSoItemRow() {
-    const tbody = document.getElementById('soItemsBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td><input type="text" class="so-model" placeholder="型號"></td><td><input type="text" class="so-name" placeholder="品名"></td><td><input type="text" class="so-size" placeholder="規格"></td><td><input type="text" class="so-color" placeholder="顏色"></td><td><input type="number" class="so-qty input-qty" min="0" oninput="calculateSoTotals()"></td><td><input type="number" class="so-price input-price" step="0.01" min="0" oninput="calculateSoTotals()"></td><td><input type="text" class="so-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculateSoTotals();">刪除</button></td>`;
-    tbody.appendChild(tr);
-    const rTr = document.createElement('tr');
-    rTr.innerHTML = `<td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" placeholder="備註..."></td>`;
-    tbody.appendChild(rTr);
-    calculateSoTotals();
-  }
-
-  function calculateSoTotals() {
-    let gt = 0;
-    document.querySelectorAll('#soItemsBody tr:not(:nth-child(even))').forEach(row => {
-      const q = parseFloat(row.querySelector('.so-qty').value) || 0;
-      const p = parseFloat(row.querySelector('.so-price').value) || 0;
-      const t = q * p; row.querySelector('.so-total').value = t ? t.toLocaleString('zh-TW', {minimumFractionDigits:2}) : ''; gt += t;
-    });
-    document.getElementById('soGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
-    
-    const deposit = parseFloat(document.getElementById('so_deposit_paid').value) || 0;
-    const balance = Math.max(0, gt - deposit);
-    document.getElementById('so_balance_due').value = balance.toLocaleString('zh-TW', {minimumFractionDigits:2});
-  }
-
-  function handleSoSubmit(e) {
-    e.preventDefault();
-    let items = [], gt = 0;
-    document.querySelectorAll('#soItemsBody tr:not(:nth-child(even))').forEach(r => {
-      const q = parseFloat(r.querySelector('.so-qty').value) || 0;
-      const p = parseFloat(r.querySelector('.so-price').value) || 0;
-      const t = q * p; gt += t;
-      items.push({
-        model: r.querySelector('.so-model').value, name: r.querySelector('.so-name').value,
-        size: r.querySelector('.so-size').value, color: r.querySelector('.so-color').value,
-        qty: q, unit_price: p, total: t, remarks: r.nextElementSibling.querySelector('.item-remarks').value
-      });
-    });
-    const deposit = parseFloat(document.getElementById('so_deposit_paid').value) || 0;
-    const payload = {
-      sales_person: document.getElementById('so_sales_person').value, so_no: document.getElementById('so_no').value,
-      order_date: document.getElementById('so_order_date').value, customer_code: document.getElementById('so_customer_code').value,
-      customer_name: document.getElementById('so_customer_name').value, currency: document.getElementById('so_currency').value,
-      grand_total: gt, deposit_paid: deposit, pay_method: document.getElementById('so_pay_method').value,
-      remark: document.getElementById('so_remark').value, items: items
-    };
-    fetch('/api/so/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 客戶訂單與訂金紀錄儲存成功！' : '✖ 失敗'));
-  }
-
-  function querySoRecord() {
-    const soNo = document.getElementById('so_no').value.trim();
-    if (!soNo) return alert("請輸入訂單編號");
-    fetch(`/api/so/${soNo}`).then(r => r.json()).then(res => {
-      if (res.found) {
-        const h = res.header;
-        document.getElementById('so_sales_person').value = h.sales_person;
-        document.getElementById('so_order_date').value = h.order_date;
-        document.getElementById('so_customer_code').value = h.customer_code;
-        document.getElementById('so_customer_name').value = h.customer_name;
-        document.getElementById('so_currency').value = h.currency;
-        document.getElementById('so_pay_method').value = h.pay_method || '現金';
-        document.getElementById('so_deposit_paid').value = h.deposit_paid || 0;
-        document.getElementById('so_remark').value = h.remark;
-        const tbody = document.getElementById('soItemsBody'); tbody.innerHTML = '';
-        res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="so-model" value="${it.model||''}"></td><td><input type="text" class="so-name" value="${it.name||''}"></td><td><input type="text" class="so-size" value="${it.size||''}"></td><td><input type="text" class="so-color" value="${it.color||''}"></td><td><input type="number" class="so-qty input-qty" value="${it.qty||''}" oninput="calculateSoTotals()"></td><td><input type="number" class="so-price input-price" value="${it.unit_price||''}" oninput="calculateSoTotals()"></td><td><input type="text" class="so-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').nextElementSibling.remove(); this.closest('tr').remove(); calculateSoTotals();">刪除</button></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
-        });
-        calculateSoTotals();
-        alert("✔ 訂單載入成功！");
-      } else alert(res.message);
-    });
-  }
-
-  // 銷貨出貨
-  function importFromSo() {
-    const soNo = document.getElementById('do_so_no').value.trim();
-    if (!soNo) return alert("請輸入客戶訂單編號 (SO)");
-    fetch(`/api/so/${soNo}`).then(r => r.json()).then(res => {
-      if (res.found) {
-        document.getElementById('do_customer_code').value = res.header.customer_code;
-        document.getElementById('do_customer_name').value = res.header.customer_name;
-        const tbody = document.getElementById('doItemsBody'); tbody.innerHTML = '';
-        res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="do-model readonly" value="${it.model}" readonly></td><td><input type="text" class="do-name readonly" value="${it.name}" readonly></td><td><input type="text" class="do-size readonly" value="${it.size}" readonly></td><td><input type="text" class="do-color readonly" value="${it.color}" readonly></td><td><select class="do-wh">${generateWarehouseSelectOptions('八里倉')}</select></td><td><input type="number" class="do-qty input-qty" value="${it.qty}" min="0" oninput="calculateDoTotals()" required></td><td><input type="text" class="do-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="do-total readonly input-total" readonly></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
-        });
-        calculateDoTotals();
-        alert("✔ SO 訂單轉入成功！");
-      } else alert("找不到客戶訂單");
-    });
-  }
-
-  function calculateDoTotals() {
-    let gt = 0;
-    document.querySelectorAll('#doItemsBody tr:not(:nth-child(even))').forEach(r => {
-      const q = parseFloat(r.querySelector('.do-qty').value) || 0;
-      const p = parseFloat(r.querySelector('.do-price').value) || 0;
-      const t = q * p; r.querySelector('.do-total').value = t.toLocaleString('zh-TW', {minimumFractionDigits:2}); gt += t;
-    });
-    document.getElementById('doGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
-  }
-
-  function handleDeliverySubmit(e) {
-    e.preventDefault();
-    let items = [];
-    document.querySelectorAll('#doItemsBody tr:not(:nth-child(even))').forEach(r => {
-      items.push({
-        warehouse: r.querySelector('.do-wh').value, model: r.querySelector('.do-model').value,
-        name: r.querySelector('.do-name').value, size: r.querySelector('.do-size').value,
-        color: r.querySelector('.do-color').value, shipped_qty: parseFloat(r.querySelector('.do-qty').value)||0,
-        unit_price: parseFloat(r.querySelector('.do-price').value)||0, remarks: r.nextElementSibling.querySelector('.item-remarks').value
-      });
-    });
-    const payload = {
-      shipper_name: document.getElementById('do_shipper_name').value, do_number: document.getElementById('do_number').value,
-      so_no: document.getElementById('do_so_no').value, delivery_date: document.getElementById('do_date').value,
-      customer_code: document.getElementById('do_customer_code').value, customer_name: document.getElementById('do_customer_name').value,
-      driver: document.getElementById('do_driver').value,
-      manual_freight: parseFloat(document.getElementById('do_manual_freight').value) || 0,
-      grand_total: parseFloat(document.getElementById('doGrandTotalText').innerText.replace(/,/g,''))||0, items: items
-    };
-    fetch('/api/delivery/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 銷貨出貨單儲存成功！' : '✖ 失敗'));
-  }
-
-  function queryDeliveryRecord() {
-    const no = document.getElementById('do_number').value.trim();
-    if (!no) return alert("請輸入出貨單號");
-    fetch(`/api/delivery/${no}`).then(r => r.json()).then(res => {
-      if (res.found) {
-        const h = res.header;
-        document.getElementById('do_shipper_name').value = h.shipper_name;
-        document.getElementById('do_date').value = h.delivery_date;
-        document.getElementById('do_so_no').value = h.so_number;
-        document.getElementById('do_customer_code').value = h.customer_code;
-        document.getElementById('do_customer_name').value = h.customer_name;
-        if (h.driver) document.getElementById('do_driver').value = h.driver;
-        if (h.manual_freight !== undefined) document.getElementById('do_manual_freight').value = h.manual_freight;
-        const tbody = document.getElementById('doItemsBody'); tbody.innerHTML = '';
-        res.items.forEach(it => {
-          tbody.innerHTML += `<tr><td><input type="text" class="do-model readonly" value="${it.model}" readonly></td><td><input type="text" class="do-name readonly" value="${it.name}" readonly></td><td><input type="text" class="do-size readonly" value="${it.size}" readonly></td><td><input type="text" class="do-color readonly" value="${it.color}" readonly></td><td><select class="do-wh">${generateWarehouseSelectOptions(it.warehouse)}</select></td><td><input type="number" class="do-qty input-qty" value="${it.shipped_qty}" min="0" oninput="calculateDoTotals()" required></td><td><input type="text" class="do-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="do-total readonly input-total" readonly></td></tr><tr><td colspan="8" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
-        });
-        calculateDoTotals();
-        alert("✔ 銷貨單載入成功！");
-      } else alert(res.message);
-    });
-  }
-
-  // 庫存規格與顏色管理
-  function loadInventory() {
-    fetch('/api/inventory/list').then(r => r.json()).then(data => {
-      cachedInventory = data || [];
-      renderInventoryTable(cachedInventory);
-    });
-  }
-
-  function renderInventoryTable(items) {
-    const tb = document.getElementById('inventoryTableBody'); tb.innerHTML = '';
-    if (!items.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">尚無商品與庫存資料，請於上方新增</td></tr>`; return; }
-    items.forEach(item => {
-      tb.innerHTML += `<tr>
-        <td><strong>${item.sku}</strong></td>
-        <td class="text-start">${item.name}</td>
-        <td><span class="text-primary">${item.spec||'-'}</span></td>
-        <td><span class="text-success fw-bold">${item.color||'-'}</span></td>
-        <td class="text-end">$${item.cost.toLocaleString()}</td>
-        <td class="text-end">$${item.price.toLocaleString()}</td>
-        <td class="text-end fw-bold text-success">${item.stock.toLocaleString()} 件</td>
-        <td class="text-end">${item.safety_stock}</td>
-        <td class="text-center no-print">
-          <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editInventoryItem(${JSON.stringify(item)})'>✏️ 修改</button>
-          <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteInventoryItem('${item.sku}')">🗑️ 刪除</button>
-        </td>
-      </tr>`;
-    });
-  }
-
-  function filterInventory() {
-    const keyword = document.getElementById('invSearchBox').value.toLowerCase();
-    const filtered = cachedInventory.filter(item => item.sku.toLowerCase().includes(keyword) || item.name.toLowerCase().includes(keyword) || (item.color && item.color.toLowerCase().includes(keyword)));
-    renderInventoryTable(filtered);
-  }
-
-  function handleInventorySave(e) {
-    e.preventDefault();
-    const payload = {
-      sku: document.getElementById('invSku').value.trim(),
-      name: document.getElementById('invName').value.trim(),
-      category: '五金配件',
-      spec: document.getElementById('invSpec').value.trim(),
-      color: document.getElementById('invColor').value.trim(),
-      cost: parseFloat(document.getElementById('invCost').value) || 0,
-      price: parseFloat(document.getElementById('invPrice').value) || 0,
-      stock: parseInt(document.getElementById('invStock').value) || 0,
-      safety_stock: parseInt(document.getElementById('invSafety').value) || 10,
-      note: ''
-    };
-    fetch('/api/inventory/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { resetInvForm(); loadInventory(); }
-      });
-  }
-
-  function editInventoryItem(item) {
-    document.getElementById('invSku').value = item.sku;
-    document.getElementById('invSku').readOnly = true;
-    document.getElementById('invName').value = item.name;
-    document.getElementById('invSpec').value = item.spec || '';
-    document.getElementById('invColor').value = item.color || '';
-    document.getElementById('invCost').value = item.cost;
-    document.getElementById('invPrice').value = item.price;
-    document.getElementById('invStock').value = item.stock;
-    document.getElementById('invSafety').value = item.safety_stock;
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  }
-
-  function deleteInventoryItem(sku) {
-    if (confirm(`確定要刪除商品【${sku}】嗎？`)) {
-      fetch(`/api/inventory/delete/${sku}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadInventory();
-      });
-    }
-  }
-
-  function resetInvForm() {
-    document.getElementById('inventoryForm').reset();
-    document.getElementById('invSku').readOnly = false;
-  }
-
-  // 客戶建立管理
-  function loadCustomers() {
-    fetch('/api/customers/list').then(r => r.json()).then(data => {
-      cachedCustomers = data || [];
-      const tb = document.getElementById('custTableBody'); tb.innerHTML = '';
-      if (!cachedCustomers.length) { tb.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-muted">尚無客戶資料</td></tr>`; return; }
-      cachedCustomers.forEach(c => {
-        tb.innerHTML += `<tr>
-          <td><strong>${c.customer_code}</strong></td>
-          <td class="text-start">${c.customer_name}</td>
-          <td>${c.tax_id||'-'}</td>
-          <td>${c.contact_info||'-'}</td>
-          <td>${c.payment_terms||'月結30天'}</td>
-          <td><span class="text-primary">${c.address||'未填地址'}</span></td>
-          <td class="text-center no-print">
-            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editCustomer(${JSON.stringify(c)})'>✏️ 修改</button>
-            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteCustomer('${c.customer_code}')">🗑️ 刪除</button>
-          </td>
-        </tr>`;
-      });
-    });
-  }
-
-  function handleCustomerSave(e) {
-    e.preventDefault();
-    const payload = {
-      customer_code: document.getElementById('custCode').value.trim(),
-      customer_name: document.getElementById('custName').value.trim(),
-      tax_id: document.getElementById('custTaxId').value.trim(),
-      contact_info: document.getElementById('custPhone').value.trim(),
-      payment_terms: document.getElementById('custTerms').value.trim(),
-      address: document.getElementById('custAddress').value.trim()
-    };
-    fetch('/api/customers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { resetCustForm(); loadCustomers(); }
-      });
-  }
-
-  function editCustomer(c) {
-    document.getElementById('custCode').value = c.customer_code;
-    document.getElementById('custCode').readOnly = true;
-    document.getElementById('custName').value = c.customer_name;
-    document.getElementById('custTaxId').value = c.tax_id || '';
-    document.getElementById('custPhone').value = c.contact_info || '';
-    document.getElementById('custTerms').value = c.payment_terms || '月結30天';
-    document.getElementById('custAddress').value = c.address || '';
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  }
-
-  function deleteCustomer(code) {
-    if (confirm(`確定要刪除客戶【${code}】嗎？`)) {
-      fetch(`/api/customers/delete/${code}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadCustomers();
-      });
-    }
-  }
-
-  function resetCustForm() {
-    document.getElementById('customerForm').reset();
-    document.getElementById('custCode').readOnly = false;
-  }
-
-  function prepareTransForm() {
-    const sel = document.getElementById('transSkuSelect');
-    sel.innerHTML = '<option value="">-- 請選擇商品 --</option>';
-    cachedInventory.forEach((item, idx) => {
-      sel.innerHTML += `<option value="${idx}">【${item.sku}】${item.name} (${item.spec||''}/${item.color||''}) - 庫存:${item.stock}</option>`;
-    });
-  }
-
-  function onSkuSelected() {
-    const idx = document.getElementById('transSkuSelect').value;
-    if (idx === "" || !cachedInventory[idx]) return;
-    const item = cachedInventory[idx];
-    document.getElementById('transSku').value = item.sku;
-    document.getElementById('transPrice').value = item.price;
-  }
-
-  function submitTransaction() {
-    const payload = {
-      transType: document.getElementById('transType').value,
-      orderId: document.getElementById('transOrderId').value,
-      customerCode: document.getElementById('transCustCode').value,
-      customerName: document.getElementById('transCustName').value,
-      transSku: document.getElementById('transSku').value,
-      transQty: document.getElementById('transQty').value,
-      transPrice: document.getElementById('transPrice').value,
-      transDate: document.getElementById('transDate').value,
-      transNote: document.getElementById('transNote').value,
-      keyinUser: document.getElementById('transKeyin').value
-    };
-    fetch('/api/inventory/transaction/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if (res.success) { document.getElementById('transForm').reset(); document.getElementById('transDate').value = new Date().toISOString().slice(0, 10); loadInventory(); }
-      });
-  }
-
-  // 業務業績與管銷係數自動計算
-  function loadSalesPerformance() {
-    const pPerson = document.getElementById('perfFilterPerson').value.trim().toLowerCase();
-    const pStart = document.getElementById('perfFilterStart').value;
-    const pEnd = document.getElementById('perfFilterEnd').value;
-
-    fetch('/api/sales/performance').then(r => r.json()).then(data => {
-      const tb = document.getElementById('salesPerfTableBody'); tb.innerHTML = '';
-      let filtered = data.filter(d => {
-        if (pPerson && !d.sales_person.toLowerCase().includes(pPerson)) return false;
-        if (pStart && d.order_date < pStart) return false;
-        if (pEnd && d.order_date > pEnd) return false;
-        return true;
-      });
-
-      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">尚無符合條件的業務業績紀錄</td></tr>`; return; }
-      filtered.forEach(d => {
-        tb.innerHTML += `<tr>
-          <td><strong>${d.sales_person}</strong></td>
-          <td>${d.order_id||'-'}</td>
-          <td>${d.order_date}</td>
-          <td>${d.customer_name}</td>
-          <td class="text-end">$${d.sales_amount.toLocaleString()}</td>
-          <td class="text-center">${d.expense_coefficient}</td>
-          <td class="text-end fw-bold text-success">$${d.net_performance.toLocaleString()}</td>
-          <td class="text-end">$${d.commission_amount.toLocaleString()}</td>
-          <td class="text-center"><span class="badge bg-success">${d.status}</span></td>
-          <td class="text-center no-print">
-            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editSalesPerf(${JSON.stringify(d)})'>✏️</button>
-            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteSalesPerf(${d.id})">🗑️</button>
-          </td>
-        </tr>`;
-      });
-    });
-  }
-
-  function handleSalesPerfSave(e) {
-    e.preventDefault();
-    const payload = {
-      perf_id: document.getElementById('perfRecordId').value || null,
-      sales_person: document.getElementById('perfSalesPerson').value.trim(),
-      order_id: document.getElementById('perfOrderId').value.trim(),
-      order_date: document.getElementById('perfOrderDate').value,
-      customer_name: document.getElementById('perfCustomer').value.trim(),
-      sales_amount: parseFloat(document.getElementById('perfSalesAmount').value) || 0,
-      expense_coefficient: parseFloat(document.getElementById('perfExpenseCoef').value) || 0.15,
-      commission_rate: parseFloat(document.getElementById('perfRate').value) || 0.05,
-      status: '已結算',
-      note: ''
-    };
-    fetch('/api/sales/performance/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { resetSalesPerfForm(); loadSalesPerformance(); }
-      });
-  }
-
-  function editSalesPerf(d) {
-    document.getElementById('perfRecordId').value = d.id;
-    document.getElementById('perfSalesPerson').value = d.sales_person;
-    document.getElementById('perfOrderId').value = d.order_id || '';
-    document.getElementById('perfOrderDate').value = d.order_date;
-    document.getElementById('perfCustomer').value = d.customer_name;
-    document.getElementById('perfSalesAmount').value = d.sales_amount;
-    document.getElementById('perfExpenseCoef').value = d.expense_coefficient;
-    document.getElementById('perfRate').value = d.commission_rate;
-    document.getElementById('perfSubmitBtn').innerText = "✏️ 覆寫修改業績";
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  }
-
-  function deleteSalesPerf(id) {
-    if (confirm("確定要刪除這筆業務業績紀錄嗎？")) {
-      fetch(`/api/sales/performance/delete/${id}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadSalesPerformance();
-      });
-    }
-  }
-
-  function resetSalesPerfForm() {
-    document.getElementById('salesPerfForm').reset();
-    document.getElementById('perfRecordId').value = '';
-    document.getElementById('perfOrderDate').valueAsDate = new Date();
-    document.getElementById('perfSubmitBtn').innerText = "💾 計算並儲存業績";
-  }
-
-  // 信用卡刷卡與退刷管理
-  function loadCreditCardTxns() {
-    fetch('/api/creditcard/list').then(r => r.json()).then(data => {
-      const tb = document.getElementById('ccTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">尚無信用卡交易紀錄</td></tr>`; return; }
-      data.forEach(c => {
-        const isRefund = c.txn_type === '信用卡退刷';
-        tb.innerHTML += `<tr>
-          <td><strong>${c.txn_date}</strong></td>
-          <td><span class="badge ${isRefund?'bg-danger':'bg-success'}">${c.txn_type}</span></td>
-          <td>${c.order_id||'-'}</td>
-          <td>${c.customer_name}</td>
-          <td>${c.auth_code||'-'}</td>
-          <td>${c.card_last4||'****'}</td>
-          <td class="text-end fw-bold ${isRefund?'text-danger':'text-success'}">$${c.amount.toLocaleString()}</td>
-          <td>${c.note||'-'}</td>
-          <td class="text-center no-print"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteCcTxn(${c.txn_id})">🗑️ 刪除</button></td>
-        </tr>`;
-      });
-    });
-  }
-
-  function handleCcSave(e) {
-    e.preventDefault();
-    const payload = {
-      txn_type: document.getElementById('ccType').value,
-      order_id: document.getElementById('ccOrderId').value.trim(),
-      customer_name: document.getElementById('ccCustomer').value.trim(),
-      amount: parseFloat(document.getElementById('ccAmount').value) || 0,
-      auth_code: document.getElementById('ccAuthCode').value.trim(),
-      card_last4: document.getElementById('ccLast4').value.trim(),
-      txn_date: document.getElementById('ccDate').value,
-      note: ''
-    };
-    fetch('/api/creditcard/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { document.getElementById('ccForm').reset(); document.getElementById('ccDate').valueAsDate = new Date(); loadCreditCardTxns(); }
-      });
-  }
-
-  function deleteCcTxn(id) {
-    if (confirm("確定要刪除這筆信用卡紀錄嗎？")) {
-      fetch(`/api/creditcard/delete/${id}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadCreditCardTxns();
-      });
-    }
-  }
-
-  // 發票系統
-  function calcInvTax() {
-    const amt = parseFloat(document.getElementById('invSalesAmt').value) || 0;
-    const tax = Math.round(amt * 0.05);
-    document.getElementById('invTaxAmt').value = tax;
-    document.getElementById('invTotalAmt').value = (amt + tax).toFixed(2);
-  }
-
-  function loadInvoices() {
-    fetch('/api/invoices/list').then(r => r.json()).then(data => {
-      const tb = document.getElementById('invoiceTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="11" class="text-center py-3 text-muted">尚無發票開立紀錄</td></tr>`; return; }
-      data.forEach(i => {
-        tb.innerHTML += `<tr>
-          <td><strong>${i.invoice_no}</strong></td>
-          <td>${i.invoice_date}</td>
-          <td>${i.invoice_type}</td>
-          <td><span class="badge ${i.party_type==='銷貨發票'?'bg-primary':'bg-info'}">${i.party_type}</span></td>
-          <td>${i.customer_name}</td>
-          <td>${i.tax_id||'-'}</td>
-          <td class="text-end">$${i.sales_amount.toLocaleString()}</td>
-          <td class="text-end">$${i.tax_amount.toLocaleString()}</td>
-          <td class="text-end fw-bold text-success">$${i.total_amount.toLocaleString()}</td>
-          <td class="text-center"><span class="badge ${i.status==='正常'?'bg-success':'bg-danger'}">${i.status}</span></td>
-          <td class="text-center no-print"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteInvoice('${i.invoice_no}')">🗑️ 刪除</button></td>
-        </tr>`;
-      });
-    });
-  }
-
-  function handleInvoiceSave(e) {
-    e.preventDefault();
-    const payload = {
-      invoice_no: document.getElementById('invNo').value.trim(),
-      invoice_date: document.getElementById('invDate').value,
-      invoice_type: document.getElementById('invType').value,
-      party_type: document.getElementById('partyType').value,
-      customer_name: document.getElementById('invCust').value.trim(),
-      tax_id: document.getElementById('invTaxId').value.trim(),
-      sales_amount: parseFloat(document.getElementById('invSalesAmt').value) || 0,
-      tax_amount: parseFloat(document.getElementById('invTaxAmt').value) || 0,
-      status: document.getElementById('invStatus').value,
-      note: document.getElementById('invNote').value.trim()
-    };
-    fetch('/api/invoices/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { document.getElementById('invoiceForm').reset(); document.getElementById('invDate').valueAsDate = new Date(); loadInvoices(); }
-      });
-  }
-
-  function deleteInvoice(no) {
-    if (confirm(`確定要刪除發票【${no}】嗎？`)) {
-      fetch(`/api/invoices/delete/${no}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadInvoices();
-      });
-    }
-  }
-
-  // 人事名冊
-  function loadEmployees() {
-    fetch('/api/employees/list').then(r => r.json()).then(data => {
-      cachedEmployees = data || [];
-      const tb = document.getElementById('empTableBody'); tb.innerHTML = '';
-      if (!cachedEmployees.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">尚無員工資料</td></tr>`; return; }
-      cachedEmployees.forEach(e => {
-        tb.innerHTML += `<tr>
-          <td><strong>${e.emp_id}</strong></td>
-          <td>${e.emp_name}</td>
-          <td>${e.department||'-'}</td>
-          <td>${e.title||'-'}</td>
-          <td>${e.phone||'-'}</td>
-          <td class="text-end">$${e.base_salary.toLocaleString()}</td>
-          <td><span class="text-primary fw-bold">${e.bank_name||'未填'}</span><br><small class="text-muted">${e.bank_account||'未填帳號'}</small></td>
-          <td class="text-center"><span class="badge ${e.status==='在職'?'bg-success':'bg-secondary'}">${e.status}</span></td>
-          <td class="text-center no-print">
-            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editEmployee(${JSON.stringify(e)})'>✏️ 修改</button>
-            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteEmployee('${e.emp_id}')">🗑️ 刪除</button>
-          </td>
-        </tr>`;
-      });
-      preparePayrollEmpSelect();
-    });
-  }
-
-  function handleEmpSave(e) {
-    e.preventDefault();
-    const payload = {
-      emp_id: document.getElementById('empId').value.trim(),
-      emp_name: document.getElementById('empName').value.trim(),
-      department: document.getElementById('empDept').value.trim(),
-      title: document.getElementById('empTitle').value.trim(),
-      phone: document.getElementById('empPhone').value.trim(),
-      hire_date: document.getElementById('empHireDate').value,
-      base_salary: parseFloat(document.getElementById('empSalary').value) || 0,
-      status: document.getElementById('empStatus').value,
-      bank_name: document.getElementById('empBankName').value.trim(),
-      bank_account: document.getElementById('empBankAccount').value.trim(),
-      note: ''
-    };
-    fetch('/api/employees/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { resetEmpForm(); loadEmployees(); }
-      });
-  }
-
-  function editEmployee(e) {
-    document.getElementById('empId').value = e.emp_id;
-    document.getElementById('empId').readOnly = true;
-    document.getElementById('empName').value = e.emp_name;
-    document.getElementById('empDept').value = e.department || '';
-    document.getElementById('empTitle').value = e.title || '';
-    document.getElementById('empPhone').value = e.phone || '';
-    document.getElementById('empHireDate').value = e.hire_date || '';
-    document.getElementById('empSalary').value = e.base_salary;
-    document.getElementById('empStatus').value = e.status || '在職';
-    document.getElementById('empBankName').value = e.bank_name || '';
-    document.getElementById('empBankAccount').value = e.bank_account || '';
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  }
-
-  function deleteEmployee(empId) {
-    if (confirm(`確定要刪除員工【${empId}】嗎？`)) {
-      fetch(`/api/employees/delete/${empId}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadEmployees();
-      });
-    }
-  }
-
-  function resetEmpForm() {
-    document.getElementById('hrForm').reset();
-    document.getElementById('empId').readOnly = false;
-  }
-
-  // 薪資系統
-  function preparePayrollEmpSelect() {
-    const sel = document.getElementById('payEmpSelect');
-    sel.innerHTML = '<option value="">-- 請選擇員工 --</option>';
-    cachedEmployees.forEach(e => {
-      sel.innerHTML += `<option value="${e.emp_id}">${e.emp_name} (${e.emp_id}) - ${e.bank_name || '未填銀行'}: ${e.bank_account || '無帳號'}</option>`;
-    });
-  }
-
-  function onEmpSelectedForPay() {
-    const empId = document.getElementById('payEmpSelect').value;
-    const emp = cachedEmployees.find(x => x.emp_id === empId);
-    if (emp) {
-      document.getElementById('payEmpId').value = emp.emp_id;
-      document.getElementById('payBase').value = emp.base_salary;
-      calcPayrollNet();
-    } else {
-      document.getElementById('payEmpId').value = '';
-      document.getElementById('payBase').value = 0;
-      calcPayrollNet();
-    }
-  }
-
-  function calcPayrollNet() {
-    const base = parseFloat(document.getElementById('payBase').value) || 0;
-    const allow = parseFloat(document.getElementById('payAllowance').value) || 0;
-    const ot = parseFloat(document.getElementById('payOvertime').value) || 0;
-    const leaveDed = parseFloat(document.getElementById('payLeaveDed').value) || 0;
-    const purDed = parseFloat(document.getElementById('payPurDed').value) || 0;
-    const insDed = parseFloat(document.getElementById('payInsDed').value) || 0;
-    const net = base + allow + ot - leaveDed - purDed - insDed;
-    document.getElementById('payNet').value = net.toFixed(2);
-  }
-
-  function handlePayrollSave(e) {
-    e.preventDefault();
-    const empId = document.getElementById('payEmpId').value;
-    const emp = cachedEmployees.find(x => x.emp_id === empId);
-    if (!emp) return alert("請先選擇員工！");
-    const payload = {
-      payroll_id: document.getElementById('payrollRecordId').value || null,
-      emp_id: empId, emp_name: emp.emp_name,
-      pay_month: document.getElementById('payMonth').value,
-      base_salary: parseFloat(document.getElementById('payBase').value) || 0,
-      allowance: parseFloat(document.getElementById('payAllowance').value) || 0,
-      overtime_pay: parseFloat(document.getElementById('payOvertime').value) || 0,
-      leave_deduction: parseFloat(document.getElementById('payLeaveDed').value) || 0,
-      emp_purchase_deduction: parseFloat(document.getElementById('payPurDed').value) || 0,
-      insurance_deduction: parseFloat(document.getElementById('payInsDed').value) || 0,
-      pay_date: document.getElementById('payDate').value, status: '已發放',
-      note: document.getElementById('payNote').value.trim()
-    };
-    fetch('/api/payroll/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { resetPayrollForm(); loadPayroll(); }
-      });
-  }
-
-  function loadPayroll() {
-    fetch('/api/payroll/list').then(r => r.json()).then(data => {
-      const tb = document.getElementById('payrollTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-muted">尚無薪資發放紀錄</td></tr>`; return; }
-      data.forEach(p => {
-        const emp = cachedEmployees.find(x => x.emp_id === p.emp_id);
-        const bankInfo = emp ? `<span class="text-primary">${emp.bank_name || '未填銀行'}: ${emp.bank_account || '無帳號'}</span>` : '-';
-        tb.innerHTML += `<tr>
-          <td><strong>${p.pay_month}</strong></td><td>${p.emp_id}</td><td>${p.emp_name}</td>
-          <td class="text-end">$${p.base_salary.toLocaleString()}</td>
-          <td class="text-end fw-bold text-success">$${p.net_salary.toLocaleString()}</td>
-          <td>${p.pay_date}</td>
-          <td>${bankInfo}</td>
-          <td class="text-center no-print">
-            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deletePayroll(${p.id})">🗑️ 刪除</button>
-          </td>
-        </tr>`;
-      });
-    });
-  }
-
-  function deletePayroll(id) {
-    if (confirm("確定要刪除這筆薪資發放紀錄嗎？")) {
-      fetch(`/api/payroll/delete/${id}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadPayroll();
-      });
-    }
-  }
-
-  // 專業應付帳款管理 (AP Pro)
-  function searchAPPro() {
-    const id = document.getElementById("apSearchId").value.trim().toUpperCase();
-    if (!id) return alert("請輸入進貨單號！");
-    fetch(`/api/ap/search/${id}`).then(r => r.json()).then(res => {
-      if (res.success) {
-        apBaseOrder = res.data;
-        document.getElementById("apInboundNo").value = apBaseOrder.inboundNo;
-        document.getElementById("apVendorName").value = apBaseOrder.vendorDisplay;
-        document.getElementById("apTotalAmount").value = apBaseOrder.totalAmount;
-        document.getElementById("dispTotalPaidText").innerText = "$" + apBaseOrder.totalPaid.toLocaleString();
-        document.getElementById("apPayAmount").value = apBaseOrder.currentUnpaid;
-        document.getElementById("apUnpaidAmount").value = 0;
-        
-        const banner = document.getElementById("apUnpaidBanner");
-        banner.style.display = "block";
-        banner.innerHTML = `<div class="d-flex justify-content-between align-items-center"><div><span class="badge bg-danger">${apBaseOrder.status}</span> 應付總額: $${apBaseOrder.totalAmount.toLocaleString()}，已付: $${apBaseOrder.totalPaid.toLocaleString()}</div><div>未付餘額 (結轉下期)：<strong class="text-danger fs-5">$${apBaseOrder.currentUnpaid.toLocaleString()}</strong></div></div>`;
-        
-        document.getElementById("apInboundNo").readOnly = true;
-        document.getElementById("apTotalAmount").readOnly = true;
-        renderAPHistoryTable(apBaseOrder.historyRecords);
-      } else alert(res.message);
-    });
-  }
-
-  function renderAPHistoryTable(records) {
-    const box = document.getElementById("apHistoryBox");
-    const tbody = document.getElementById("apHistoryListBody");
-    const badge = document.getElementById("apHistoryCountBadge");
-    tbody.innerHTML = "";
-    if (!records || records.length === 0) { box.style.display = "none"; return; }
-    badge.innerText = records.length + " 筆";
-    records.forEach(r => {
-      tbody.innerHTML += `<tr><td><strong>${r.payDate}</strong></td><td><span class="badge bg-secondary">${r.payMethod}</span></td><td class="text-end fw-bold text-success">$${r.payAmount.toLocaleString()}</td><td class="text-start">${r.remarks||''}</td></tr>`;
-    });
-    box.style.display = "block";
-  }
-
-  function calcAPPro() {
-    const total = parseFloat(document.getElementById("apTotalAmount").value) || 0;
-    const paid = apBaseOrder ? apBaseOrder.totalPaid : 0;
-    const thisPay = parseFloat(document.getElementById("apPayAmount").value) || 0;
-    const remain = Math.max(0, total - paid - thisPay);
-    document.getElementById("apUnpaidAmount").value = remain;
-  }
-
-  function submitAPPro() {
-    const payload = {
-      inbound_no: document.getElementById("apInboundNo").value.trim(),
-      vendor_name: document.getElementById("apVendorName").value.trim(),
-      pay_amount: parseFloat(document.getElementById("apPayAmount").value) || 0,
-      pay_method: document.getElementById("apPayMethod").value,
-      pay_date: document.getElementById("apPayDate").value,
-      remarks: document.getElementById("apRemarks").value.trim()
-    };
-    fetch('/api/ap/pay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        if (res.status === 'success') {
-          alert("🎉 應付帳款付款與銷帳成功！未付餘額已自動結轉。");
-          document.getElementById("apForm").reset();
-          document.getElementById("apUnpaidBanner").style.display = "none";
-          document.getElementById("apHistoryBox").style.display = "none";
-          document.getElementById("apInboundNo").readOnly = false;
-          document.getElementById("apTotalAmount").readOnly = false;
-          apBaseOrder = null;
-          loadAP();
-        } else {
-          alert("✖ 失敗：" + res.message);
-        }
-      });
-  }
-
-  // 專業應收帳款 (AR Pro)
-  function toggleARCheckFields() {
-    const type = document.getElementById("arPayType").value;
-    document.getElementById("boxARCheck").style.display = (type === "應收票據") ? "block" : "none";
-  }
-
-  function searchAR() {
-    const id = document.getElementById("arSearchId").value.trim().toUpperCase();
-    if (!id) return alert("請輸入訂單編號！");
-    fetch(`/api/ar/search/${id}`).then(r => r.json()).then(res => {
-      if (res.success) {
-        arBaseOrder = res.data;
-        arEditTargetRow = 0;
-        document.getElementById("arOrderId").value = arBaseOrder.orderId;
-        document.getElementById("arCustomer").value = arBaseOrder.customer;
-        document.getElementById("arSalesAmount").value = arBaseOrder.salesAmount;
-        document.getElementById("arDeposit").value = arBaseOrder.deposit;
-        document.getElementById("dispTotalCollectedText").innerText = "$" + (arBaseOrder.deposit + arBaseOrder.totalCollected).toLocaleString();
-        document.getElementById("arReceiveAmount").value = arBaseOrder.currentUnpaid;
-        document.getElementById("arUnpaidAmount").value = 0;
-        
-        const banner = document.getElementById("arUnpaidBanner");
-        banner.style.display = "block";
-        banner.innerHTML = `<div class="d-flex justify-content-between align-items-center"><div><span class="badge bg-danger">${arBaseOrder.discrepancyStatus}</span> 銷售總額: $${arBaseOrder.salesAmount.toLocaleString()}，已收: $${(arBaseOrder.deposit + arBaseOrder.totalCollected).toLocaleString()}</div><div>尚欠餘額：<strong class="text-danger fs-5">$${arBaseOrder.currentUnpaid.toLocaleString()}</strong></div></div>`;
-        
-        document.getElementById("arDriver").value = arBaseOrder.driver || '大蔡';
-        updateDriverLogic();
-        document.getElementById("arFreight").value = arBaseOrder.freight || 0;
-        document.getElementById("arOldItemFee").value = arBaseOrder.oldItemFee || 0;
-        document.getElementById("arNote").value = arBaseOrder.balanceNote || '';
-        
-        document.getElementById("arOrderId").readOnly = true;
-        document.getElementById("arSalesAmount").readOnly = true;
-        document.getElementById("arDeposit").readOnly = true;
-        renderARHistoryTable(arBaseOrder.historyRecords);
-      } else alert(res.message);
-    });
-  }
-
-  function renderARHistoryTable(records) {
-    const box = document.getElementById("arHistoryBox");
-    const tbody = document.getElementById("arHistoryListBody");
-    const badge = document.getElementById("arHistoryCountBadge");
-    tbody.innerHTML = "";
-    if (!records || records.length === 0) { box.style.display = "none"; return; }
-    badge.innerText = records.length + " 筆";
-    records.forEach(r => {
-      const checkInfo = (r.payType === "應收票據" && r.checkNo) ? `${r.checkNo} (到期:${r.checkDueDate})` : "-";
-      tbody.innerHTML += `<tr><td><strong>${r.date}</strong></td><td><span class="badge bg-secondary">${r.payType}</span></td><td class="text-end fw-bold text-primary">$${r.amount.toLocaleString()}</td><td>${checkInfo}</td><td>${r.user}</td><td class="text-start">${r.note||''}</td><td><button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size:11px;" onclick='loadSpecificRowForEdit(${JSON.stringify(r)})'>✏️ 修改</button></td></tr>`;
-    });
-    box.style.display = "block";
-  }
-
-  function loadSpecificRowForEdit(r) {
-    arEditTargetRow = r.rowIndex;
-    document.getElementById("arReceiveDate").value = r.date;
-    document.getElementById("arPayType").value = r.payType;
-    toggleARCheckFields();
-    document.getElementById("arCheckNo").value = r.checkNo || "";
-    document.getElementById("arCheckDueDate").value = r.checkDueDate || "";
-    document.getElementById("arReceiveAmount").value = r.amount;
-    document.getElementById("arNote").value = r.note || "";
-    document.getElementById("arSaveBtn").innerText = `✏️ 覆寫儲存【第 ${r.rowIndex} 筆】`;
-    document.getElementById("arCancelEditBtn").style.display = "block";
-    calcAR();
-  }
-
-  function cancelRowEdit() {
-    arEditTargetRow = 0;
-    if(arBaseOrder) document.getElementById("arReceiveAmount").value = arBaseOrder.currentUnpaid;
-    document.getElementById("arSaveBtn").innerText = "💾 儲存並新增一筆收款紀錄";
-    document.getElementById("arCancelEditBtn").style.display = "none";
-    calcAR();
-  }
-
-  function calcAR() {
-    const sales = parseFloat(document.getElementById("arSalesAmount").value) || 0;
-    const deposit = parseFloat(document.getElementById("arDeposit").value) || 0;
-    const thisRec = parseFloat(document.getElementById("arReceiveAmount").value) || 0;
-    const remain = arBaseOrder ? (arEditTargetRow > 0 ? (sales - deposit - thisRec) : (arBaseOrder.currentUnpaid - thisRec)) : (sales - deposit - thisRec);
-    document.getElementById("arUnpaidAmount").value = Math.max(0, remain);
-    calcFreight();
-  }
-
-  function updateDriverLogic() {
-    const driver = document.getElementById("arDriver").value;
-    const areaSelect = document.getElementById("arDriverArea");
-    areaSelect.innerHTML = "";
-    if (driver === "大蔡") {
-      areaSelect.innerHTML = '<option value="NORTH_4">新竹以北 (4%)</option><option value="SOUTH_5">苗栗以南 (5%)</option><option value="HUALIEN_7">花蓮 (7%)</option><option value="CUSTOM">手動自訂</option>';
-    } else if (driver === "南倉") {
-      areaSelect.innerHTML = '<option value="TAINAN_5">台南 (5%)</option><option value="OTHER_6">其餘 (6%)</option><option value="CUSTOM">手動自訂</option>';
-    } else {
-      areaSelect.innerHTML = '<option value="CUSTOM">自行輸入運費</option>';
-    }
-    calcFreight();
-  }
-
-  function calcFreight() {
-    const driver = document.getElementById("arDriver").value;
-    const area = document.getElementById("arDriverArea").value;
-    const sales = parseFloat(document.getElementById("arSalesAmount").value) || 0;
-    if (area === "CUSTOM" || driver === "大生") return;
-    const rate = (driver === "大蔡") ? (area === "NORTH_4" ? 0.04 : area === "SOUTH_5" ? 0.05 : 0.07) : (area === "TAINAN_5" ? 0.05 : 0.06);
-    document.getElementById("arFreight").value = Math.round(sales * rate);
-  }
-
-  function submitAR() {
-    const payType = document.getElementById("arPayType").value;
-    if (payType === "應收票據" && (!document.getElementById("arCheckNo").value.trim() || !document.getElementById("arCheckDueDate").value)) {
-      return alert("⚠️ 請填寫完整的票號與到期日！");
-    }
-    const payload = {
-      orderId: document.getElementById("arOrderId").value.trim(),
-      customer: document.getElementById("arCustomer").value.trim(),
-      salesAmount: parseFloat(document.getElementById("arSalesAmount").value) || 0,
-      deposit: parseFloat(document.getElementById("arDeposit").value) || 0,
-      receiveAmount: parseFloat(document.getElementById("arReceiveAmount").value) || 0,
-      unpaidAmount: parseFloat(document.getElementById("arUnpaidAmount").value) || 0,
-      payType: payType, checkNo: document.getElementById("arCheckNo").value.trim(),
-      checkDueDate: document.getElementById("arCheckDueDate").value,
-      receiveDate: document.getElementById("arReceiveDate").value,
-      driver: document.getElementById("arDriver").value,
-      driverArea: document.getElementById("arDriverArea").selectedOptions[0]?.text || "",
-      freight: parseFloat(document.getElementById("arFreight").value) || 0,
-      oldItemFee: parseFloat(document.getElementById("arOldItemFee").value) || 0,
-      keyinUser: document.getElementById("arKeyinUser").value,
-      note: document.getElementById("arNote").value.trim(),
-      isEditSpecificRow: (arEditTargetRow > 0), targetRowIndex: arEditTargetRow
-    };
-    fetch('/api/ar/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if (res.success) {
-          document.getElementById("arForm").reset();
-          document.getElementById("arUnpaidBanner").style.display = "none";
-          document.getElementById("arHistoryBox").style.display = "none";
-          document.getElementById("arOrderId").readOnly = false;
-          document.getElementById("arSalesAmount").readOnly = false;
-          document.getElementById("arDeposit").readOnly = false;
-          arBaseOrder = null; arEditTargetRow = 0;
-        }
-      });
-  }
-
-  // 司機運費對帳系統
-  function loadPrintData() {
-    const start = document.getElementById("printStartDate").value;
-    const end = document.getElementById("printEndDate").value;
-    const driverFilter = document.getElementById("printDriverFilter").value;
-    const container = document.getElementById("printContainer");
-    if (!start || !end) return alert("⚠️ 請選取起迄日期！");
-    container.innerHTML = '<div class="text-center py-4 text-muted">載入對帳單中...</div>';
-
-    fetch(`/api/print/data?startDate=${start}&endDate=${end}&driver=${driverFilter}`).then(r => r.json()).then(res => {
-      let list = res.list || [];
-      if (!list.length) { container.innerHTML = '<div class="text-center py-4 text-muted">此區段內無收款紀錄</div>'; return; }
-
-      let sumCash = 0, sumFreight = 0, sumOld = 0;
-      list.forEach(r => {
-        sumFreight += Number(r.freight) || 0;
-        sumOld += Number(r.oldFee) || 0;
-        if (r.payType === "現金") sumCash += Number(r.received) || 0;
-      });
-      const netCash = sumCash - sumFreight - sumOld;
-      const title = driverFilter === "ALL" ? "全門市" : `司機【${driverFilter}】`;
-
-      let html = `<div class="driver-cash-summary shadow-sm mb-3 p-3 border rounded bg-light">
-        <div class="row g-2 text-center align-items-center mb-2">
-          <div class="col-3 border-end"><div>💵 代收現金</div><strong class="fs-6 text-dark">$${sumCash.toLocaleString()}</strong></div>
-          <div class="col-3 border-end"><div>🚚 扣除運費</div><strong class="fs-6 text-danger">-$${sumFreight.toLocaleString()}</strong></div>
-          <div class="col-3 border-end"><div>📦 扣除舊貨</div><strong class="fs-6 text-danger">-$${sumOld.toLocaleString()}</strong></div>
-          <div class="col-3 bg-white p-2 rounded border border-success"><div>💰 本期應繳現金</div><strong class="fs-6 text-success">$${netCash.toLocaleString()}</strong></div>
-        </div>
-      </div>
-      <table class="table table-bordered table-sm text-center align-middle" style="font-size:11px;">
-        <thead class="table-light">
-          <tr><th colspan="11" class="bg-dark text-white py-2" style="font-size:11pt;">🚚 珮藏居 - ${title} 司機運費與代收對帳單 (${start} ~ ${end})</th></tr>
-          <tr><th>單號</th><th>客戶</th><th>收款日</th><th>方式</th><th>實收金額</th><th>司機/倉別</th><th>運費</th><th>舊貨費</th><th>未收餘額</th><th>經辦</th><th>備註</th></tr>
-        </thead><tbody>`;
-      list.forEach(r => {
-        html += `<tr><td>${r.id}</td><td>${r.customer}</td><td>${r.date}</td><td><span class="badge bg-success">${r.payType}</span></td><td class="text-end text-success fw-bold">$${Number(r.received).toLocaleString()}</td><td>${r.driver}<br><small>${r.driverArea}</small></td><td class="text-end text-danger">$${Number(r.freight).toLocaleString()}</td><td class="text-end text-danger">$${Number(r.oldFee).toLocaleString()}</td><td class="text-end text-danger">$${Number(r.unpaid).toLocaleString()}</td><td>${r.user}</td><td class="text-start">${r.note||''}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-      container.innerHTML = html;
-    });
-  }
-
-  // AP, AR, 財務載入
-function loadAP() {
-    const fInput = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
-    const fMonth = document.getElementById('ap_filter_month').value;
-    const fStart = document.getElementById('ap_filter_start').value;
-    const fEnd = document.getElementById('ap_filter_end').value;
-
-    fetch('/api/ap/summary').then(r => r.json()).then(res => {
-      const tb = document.getElementById('apTableBody'); 
-      if (!tb) return;
-      tb.innerHTML = '';
-      
-      if (!res.data || !res.data.length) { 
-        tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">目前無應付帳款資料</td></tr>`; 
-        return; 
-      }
-
-      let filtered = res.data.filter(d => {
-        let dt = d.inbound_date || '';
-        let vDisplay = (d.vendor_name || '').toLowerCase(); // 包含供應商代號與名稱（例如 "013 義興(三川家具行)"）
-        
-        // 只要輸入的關鍵字（如 013 或 義興）符合供應商顯示字串即可
-        if (fInput && !vDisplay.includes(fInput)) return false;
-        if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
-        if (fStart && dt && dt < fStart) return false;
-        if (fEnd && dt && dt > fEnd) return false;
-        return true;
-      });
-
-      if (!filtered.length) { 
-        tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">查無符合條件的應付帳款</td></tr>`; 
-        return; 
-      }
-
-      filtered.forEach(d => {
-        tb.innerHTML += `<tr>
-          <td>${d.inbound_no}</td>
-          <td>${d.inbound_date}</td>
-          <td>${d.vendor_name}</td>
-          <td class="text-end">$${d.total_amount.toLocaleString()}</td>
-          <td>${d.payment_term || '月結30天'}</td>
-          <td>${d.due_date || '-'}</td>
-          <td class="text-end text-success">$${(d.paid_amount || 0).toLocaleString()}</td>
-          <td class="text-end text-danger fw-bold">$${(d.unpaid_amount || 0).toLocaleString()}</td>
-          <td class="text-center"><span class="badge ${d.status==='已結清'?'bg-success':'bg-danger'}">${d.status}</span></td>
-          <td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_name}',${d.unpaid_amount})">登記付款</button></td>
-        </tr>`;
-      });
-    });
-  }
-
-  function resetApFilter() { 
-    document.getElementById('ap_filter_vendor').value = ''; 
-    document.getElementById('ap_filter_month').value = ''; 
-    document.getElementById('ap_filter_start').value = ''; 
-    document.getElementById('ap_filter_end').value = ''; 
-    loadAP(); 
-  }
-
-  // 傳票與財務報表管理
-  function addVoucherItemRow() {
-    const tbody = document.getElementById('vItemsBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td><input type="text" class="form-control form-control-sm v-code" placeholder="代號"></td><td><input type="text" class="form-control form-control-sm v-name" placeholder="名稱"></td><td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td><td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td><td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button></td>`;
-    tbody.appendChild(tr);
-  }
-
-  function calcVoucherTotals() {
-    let dr = 0, cr = 0;
-    document.querySelectorAll('.v-dr').forEach(el => { dr += parseFloat(el.value) || 0; });
-    document.querySelectorAll('.v-cr').forEach(el => { cr += parseFloat(el.value) || 0; });
-    document.getElementById('vTotalDr').innerText = dr.toFixed(2);
-    document.getElementById('vTotalCr').innerText = cr.toFixed(2);
-  }
-
-  function handleVoucherSave(e) {
-    e.preventDefault();
-    let items = [];
-    let dr = 0, cr = 0;
-    document.querySelectorAll('#vItemsBody tr').forEach(tr => {
-      const dVal = parseFloat(tr.querySelector('.v-dr').value) || 0;
-      const cVal = parseFloat(tr.querySelector('.v-cr').value) || 0;
-      dr += dVal; cr += cVal;
-      items.push({
-        account_code: tr.querySelector('.v-code').value.trim(),
-        account_name: tr.querySelector('.v-name').value.trim(),
-        debit: dVal, credit: cVal
-      });
-    });
-
-    if (Math.abs(dr - cr) > 0.01) return alert(`⚠️ 借貸不平衡！借方總計 (${dr.toFixed(2)}) 與貸方總計 (${cr.toFixed(2)}) 不符。`);
-
-    const payload = {
-      voucher_no: document.getElementById('vNo').value.trim(),
-      voucher_date: document.getElementById('vDate').value,
-      voucher_type: document.getElementById('vType').value,
-      summary: document.getElementById('vSummary').value.trim(),
-      preparer: document.getElementById('vPreparer').value,
-      items: items
-    };
-
-    fetch('/api/vouchers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if (res.success) { document.getElementById('voucherForm').reset(); document.getElementById('vDate').valueAsDate = new Date(); loadVouchers(); loadFinancialReports(); }
-      });
-  }
-
-  function loadVouchers() {
-    fetch('/api/vouchers/list').then(r => r.json()).then(data => {
-      const tb = document.getElementById('voucherTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="6" class="text-center py-2 text-muted">尚無傳票紀錄</td></tr>`; return; }
-      data.forEach(v => {
-        tb.innerHTML += `<tr><td><strong>${v.voucher_no}</strong></td><td>${v.voucher_date}</td><td>${v.voucher_type}</td><td>${v.summary}</td><td class="text-end">$${v.total_amount.toLocaleString()}</td><td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteVoucher('${v.voucher_no}')">刪除</button></td></tr>`;
-      });
-    });
-  }
-
-  function deleteVoucher(vNo) {
-    if (confirm(`確定要刪除傳票【${vNo}】嗎？`)) {
-      fetch(`/api/vouchers/delete/${vNo}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if (res.success) { loadVouchers(); loadFinancialReports(); }
-      });
-    }
-  }
-
-  function loadFinancialReports() {
-    fetch('/api/finance/reports').then(r => r.json()).then(res => {
-      const box = document.getElementById('finReportsContainer');
-      let html = '<h6 class="fw-bold text-success mb-2">⚖️ 會計科目試算表餘額：</h6><ul class="list-unstyled mb-0" style="font-size:12px;">';
-      if (!res.trial_balance.length) { html += '<li class="text-muted">尚無分錄資料</li>'; }
-      res.trial_balance.forEach(tb => {
-        html += `<li class="d-flex justify-content-between border-bottom py-1"><span>【${tb.account_code}】${tb.account_name}</span><strong>借:${tb.dr.toLocaleString()} / 貸:${tb.cr.toLocaleString()}</strong></li>`;
-      });
-      html += '</ul>';
-      box.innerHTML = html;
-    });
-  }
-
-  function openModal(type, no, name, amt) {
-    document.getElementById('modalType').value = type;
-    document.getElementById('modalNo').value = no;
-    document.getElementById('modalName').value = name;
-    document.getElementById('modalAmount').value = amt > 0 ? amt : '';
-    document.getElementById('modalDate').valueAsDate = new Date();
-    document.getElementById('modalRemarks').value = '';
-    document.getElementById('actionModal').style.display = 'flex';
-  }
-  function closeModal() { document.getElementById('actionModal').style.display = 'none'; }
-
-  function handleModalSubmit(e) {
-    e.preventDefault();
-    const payload = {
-      pay_date: document.getElementById('modalDate').value, inbound_no: document.getElementById('modalNo').value,
-      vendor_name: document.getElementById('modalName').value, pay_amount: parseFloat(document.getElementById('modalAmount').value)||0,
-      pay_method: document.getElementById('modalMethod').value, remarks: document.getElementById('modalRemarks').value
-    };
-    fetch('/api/ap/pay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        if(res.status === 'success') { alert("✔ 付款登記成功！"); closeModal(); loadAP(); }
-        else alert("失敗");
-      });
-  }
-</script>
-</body>
-</html>
-"""
-
-SUPPLIERS_HTML = """
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8"><title>供應商管理 - 珮藏居系統</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>body { background-color: #f8f9fa; } @media print { .no-print, .col-md-4 { display: none !important; } .col-md-8 { width: 100% !important; } }</style>
-</head>
-<body>
-    <nav class="navbar navbar-dark bg-dark shadow-sm mb-4 no-print">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="{{ url_for('index') }}"><i class="fa-solid fa-boxes-stacked me-2"></i>珮藏居採購系統</a>
-            <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm"><i class="fa-solid fa-arrow-left me-1"></i>返回首頁</a>
-        </div>
-    </nav>
-    <div class="container-fluid px-4">
-        <div class="row">
-            <div class="col-md-4 mb-4">
-                <div class="card shadow-sm p-4">
-                    <h4 class="mb-3 text-primary"><i class="fa-solid fa-user-plus me-2"></i>新增供應商 (含完整聯絡資訊)</h4>
-                    <form action="{{ url_for('add_supplier') }}" method="POST">
-                        <div class="mb-2"><label class="form-label">供應商代號</label><input type="text" class="form-control" name="supplier_code" required></div>
-                        <div class="mb-2"><label class="form-label">供應商名稱</label><input type="text" class="form-control" name="supplier_name" required></div>
-                        <div class="mb-2"><label class="form-label">統一編號</label><input type="text" class="form-control" name="tax_id"></div>
-                        <div class="mb-2"><label class="form-label">聯絡人</label><input type="text" class="form-control" name="contact_info"></div>
-                        <div class="mb-2"><label class="form-label">電話</label><input type="text" class="form-control" name="phone"></div>
-                        <div class="mb-2"><label class="form-label">電子信箱</label><input type="email" class="form-control" name="email"></div>
-                        <div class="mb-2"><label class="form-label">付款條件</label><input type="text" class="form-control" name="payment_terms" value="月結30天"></div>
-                        <div class="mb-2"><label class="form-label">銀行資訊</label><input type="text" class="form-control" name="bank_info"></div>
-                        <div class="mb-3"><label class="form-label text-primary">供應商地址</label><input type="text" class="form-control" name="address" placeholder="公司地址"></div>
-                        <button type="submit" class="btn btn-dark w-100">儲存供應商</button>
-                    </form>
-                </div>
-            </div>
-            <div class="col-md-8">
-                <div class="card shadow-sm p-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4 class="text-secondary mb-0">供應商清單</h4>
-                        <button onclick="window.print()" class="btn btn-outline-secondary btn-sm no-print">列印清單</button>
-                    </div>
-                    <table class="table table-hover align-middle">
-                        <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>聯絡人/電話</th><th>信箱</th><th>付款條件</th><th>地址</th><th class="text-center no-print">操作</th></tr></thead>
-                        <tbody>
-                            {% for s in suppliers %}
-                            <tr>
-                                <td>{{ s.supplier_code }}</td><td><strong>{{ s.supplier_name }}</strong></td><td>{{ s.contact_info or '-' }}<br><small class="text-muted">{{ s.phone or '-' }}</small></td><td>{{ s.email or '-' }}</td><td>{{ s.payment_terms or '-' }}</td><td>{{ s.address or '-' }}</td>
-                                <td class="text-center no-print"><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editModal{{ s.supplier_code }}"><i class="fa-solid fa-pen-to-square"></i></button></td>
-                            </tr>
-                            <div class="modal fade" id="editModal{{ s.supplier_code }}" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-dark text-white"><h5 class="modal-title">修改供應商</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-                            <form action="{{ url_for('edit_supplier', code=s.supplier_code) }}" method="POST"><div class="modal-body">
-                                <div class="mb-2"><label>代號 (不可改)</label><input type="text" class="form-control" value="{{ s.supplier_code }}" disabled></div>
-                                <div class="mb-2"><label>名稱</label><input type="text" class="form-control" name="supplier_name" value="{{ s.supplier_name }}" required></div>
-                                <div class="mb-2"><label>統編</label><input type="text" class="form-control" name="tax_id" value="{{ s.tax_id or '' }}"></div>
-                                <div class="mb-2"><label>聯絡人</label><input type="text" class="form-control" name="contact_info" value="{{ s.contact_info or '' }}"></div>
-                                <div class="mb-2"><label>電話</label><input type="text" class="form-control" name="phone" value="{{ s.phone or '' }}"></div>
-                                <div class="mb-2"><label>電子信箱</label><input type="email" class="form-control" name="email" value="{{ s.email or '' }}"></div>
-                                <div class="mb-2"><label>付款條件</label><input type="text" class="form-control" name="payment_terms" value="{{ s.payment_terms or '' }}"></div>
-                                <div class="mb-2"><label>銀行</label><input type="text" class="form-control" name="bank_info" value="{{ s.bank_info or '' }}"></div>
-                                <div class="mb-2"><label>地址</label><input type="text" class="form-control" name="address" value="{{ s.address or '' }}"></div>
-                            </div><div class="modal-footer"><button type="submit" class="btn btn-primary btn-sm">儲存變更</button></div></form></div></div></div>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
-"""
+LOGIN_HTML = """<!DOCTYPE html>...</style></head><body>...</body></html>"""
+MAIN_HTML = """<!DOCTYPE html>...</style></head><body>...</body></html>"""
+SUPPLIERS_HTML = """<!DOCTYPE html>...</style></head><body>...</body></html>"""
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

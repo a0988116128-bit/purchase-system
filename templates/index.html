@@ -191,49 +191,34 @@
     </form>
   </div>
 
-  <!-- 2. 進貨驗收系統 (已修正並排對齊) -->
-  <div id="inboundView" class="app-view">
-    <form id="inboundForm" onsubmit="handleInboundSubmit(event)">
-      <div class="section-block">
+  <div class="section-block">
         <div class="section-title">一、 進貨基本資料與採購單轉入</div>
+        
+        <!-- 第一行：收貨人員、進貨單號、進貨日期 -->
         <div class="grid-3">
           <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
           <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
         </div>
         
-        <!-- 第二行：歸屬月份、採購編號、供應商名稱 -->
-        <div class="grid-3" style="margin-top:12px;">
+        <!-- 第二行：歸屬月份、採購編號 -->
+        <div class="grid-2" style="margin-top:12px;">
           <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
-          <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
+          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="in_po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
+        </div>
+
+        <!-- 第三行：供應商編號與供應商名稱並排（最符合操作直覺） -->
+        <div class="grid-2" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
+          <div class="form-group">
+            <label class="required">供應商編號</label>
+            <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號按離開" required>
+          </div>
           <div class="form-group">
             <label class="required">供應商名稱</label>
-            <input type="text" id="in_vendor_name" class="readonly" readonly required>
-          </div>
-        </div>
-
-        <!-- 第三行：廠商編號與轉入PO按鈕並排 -->
-        <div style="display:flex; gap:12px; margin-top:12px; align-items:flex-end;">
-          <div class="form-group" style="flex: 2;">
-            <label class="required">廠商編號</label>
-            <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號" required>
-          </div>
-          <div class="form-group" style="flex: 1;">
-            <button type="button" class="btn-query" onclick="importFromPo()" style="width:100%; height:38px;">📥 轉入PO</button>
+            <input type="text" id="in_vendor_name" class="readonly" readonly required placeholder="自動帶出名稱">
           </div>
         </div>
       </div>
-
-      <div class="section-block">
-        <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
-        <table class="items-table">
-          <thead><tr><th style="width:12%;">型號</th><th style="width:16%;">品名</th><th style="width:11%;">規格</th><th style="width:11%;">顏色</th><th style="width:12%;">入庫倉庫</th><th style="width:6%;">訂購</th><th style="width:7%;">實際</th><th style="width:11%;">單價</th><th style="width:12%;">金額</th></tr></thead>
-          <tbody id="inItemsBody"></tbody>
-          <tfoot><tr><td colspan="8" style="text-align:right; font-weight:bold;">總進貨金額：</td><td style="font-weight:bold;"><span id="inGrandTotalText">0.00</span></td></tr></tfoot>
-        </table>
-      </div>
-    </form>
-  </div>
 
   <!-- 3. 客戶訂單系統 -->
   <div id="soView" class="app-view">
