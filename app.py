@@ -1211,7 +1211,7 @@ def suppliers_page():
     cursor.close()
     conn.close()
     return render_template_string(SUPPLIERS_HTML, suppliers=suppliers_list, user_name=session.get("user_name"))
-from flask import Flask, flash, jsonify, redirect, render_template, render_template_string, request, session, url_for
+    flash, jsonify, redirect, render_template, render_template_string, request, session, url_for
 
 @app.route("/suppliers/add", methods=["POST"])
 def add_supplier():
@@ -1250,3 +1250,269 @@ def edit_supplier(code):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+# ==================== 前端樣板 (HTML) ====================
+MAIN_HTML = """
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>珮藏居傢俱有限公司 - 企業全方位管理系統</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root { --primary: #0f172a; --brand: #c59b27; --border: #cbd5e1; --text: #1e293b; --bg-main: #f8fafc; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif; }
+    body { background-color: var(--bg-main); color: var(--text); padding: 15px 15px 85px 15px; display: flex; justify-content: center; font-size: 13px; }
+    .container { width: 100%; max-width: 1280px; background: #ffffff; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); border: 1px solid var(--border); overflow: hidden; }
+    .nav-header-wrapper { background: #0f172a; border-bottom: 3px solid var(--brand); padding: 10px 20px; }
+    .nav-group-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); }
+    .nav-group-row:last-child { border-bottom: none; }
+    .nav-group-title { color: #f59e0b; font-size: 11.5px; font-weight: 700; min-width: 120px; display: inline-flex; align-items: center; gap: 4px; }
+    .nav-group-buttons { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+    .tab-btn { background: #1e293b; color: #cbd5e1; border: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; cursor: pointer; transition: all 0.2s ease; }
+    .tab-btn:hover { background: #334155; color: #fff; }
+    .tab-btn.active { background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(197, 155, 39, 0.4); }
+    .btn-supplier-link { background: #0284c7; color: #fff; text-decoration: none; padding: 5px 10px; font-size: 11.5px; font-weight: 600; border-radius: 5px; display: inline-flex; align-items: center; gap: 4px; }
+    .btn-supplier-link:hover { background: #0369a1; color: #fff; }
+    .po-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 4px solid var(--brand); }
+    .po-title h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; } 
+    .po-title div { font-size: 11.5px; color: #94a3b8; margin-top: 3px; }
+    .po-company-info { text-align: right; font-size: 12px; color: #cbd5e1; line-height: 1.5; }
+    .company-name-top { font-size: 14px; font-weight: 700; color: #f59e0b; margin-bottom: 3px; }
+    .company-mid-row { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 3px; }
+    .company-address { font-size: 11px; color: #94a3b8; }
+    form { padding: 25px 35px 45px 35px; }
+    .section-block { margin-bottom: 18px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .section-title { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 14px; padding-bottom: 6px; border-bottom: 2px solid #f1f5f9; display: flex; align-items: center; gap: 6px; }
+    .section-title::before { content: ""; width: 4px; height: 13px; background: var(--brand); border-radius: 2px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 12px; font-weight: 600; color: #475569; }
+    .required::after { content: " *"; color: #dc2626; }
+    input, select, textarea { padding: 8px 12px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); outline: none; width: 100%; transition: border-color 0.2s, box-shadow 0.2s; }
+    input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(197, 155, 39, 0.15); }
+    .readonly { background: #f8fafc; color: #475569; font-weight: 600; }
+    .items-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 8px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+    .items-table th { background: #f8fafc; color: #334155; font-size: 12px; padding: 10px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 600; }
+    .items-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; border-right: 1px solid #f1f5f9; vertical-align: middle; font-size: 12.5px; background: #fff; }
+    .items-table tr:last-child td { border-bottom: none; }
+    .input-qty { text-align: center; } .input-price { text-align: right; } .input-total { text-align: right; }
+    .btn-add-item { background: #0f172a; color: #fff; border: none; padding: 6px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .btn-del-item { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; padding: 3px 7px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; }
+    .btn-query { background: #0f172a; color: #fff; border: none; padding: 8px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .floating-action-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-top: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: center; gap: 10px; z-index: 1000; box-shadow: 0 -4px 20px rgba(0,0,0,0.06); }
+    .btn-submit { background: linear-gradient(135deg, var(--brand) 0%, #a68120 100%); color: #fff; font-size: 13px; font-weight: 700; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(197,155,39,0.3); }
+    .btn-print { background: #475569; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    .btn-reset { background: #64748b; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    .btn-logout { background: #dc2626; color: #fff; font-size: 13px; font-weight: 600; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    .app-view { display: none; } .app-view.active { display: block; }
+    @media print { 
+      .nav-header-wrapper, .floating-action-bar, .btn-query, .btn-add-item, .btn-del-item, .no-print { display: none !important; } 
+      body { background-color: #fff; padding: 0; } 
+      .container { box-shadow: none; border: none; width: 100%; max-width: 100%; } 
+      form { padding: 10px; } 
+    }
+  </style>
+</head>
+<body>
+<div class="container" id="appContainer">
+  <div class="po-header">
+    <div class="po-title"><h1>珮藏居傢俱有限公司</h1><div>ENTERPRISE MANAGEMENT SYSTEM (當前使用者: {{ user_name }})</div></div>
+    <div class="po-company-info">
+      <div class="company-name-top">珮藏居傢俱有限公司</div>
+      <div class="company-mid-row"><span>統編：83390454</span><span>電話：02-22691071</span></div>
+      <div class="company-address">地址：新北市土城區中央路3段130-6號</div>
+    </div>
+  </div>
+
+  <div class="nav-header-wrapper">
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
+        <a href="{{ url_for('suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-truck-field"></i> 供應商管理</a>
+      </div>
+    </div>
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-boxes-stacked"></i> 採購與進貨：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn active" id="btnTabPurchase" onclick="switchTab('purchase')">📄 採購單</button>
+        <button type="button" class="tab-btn" id="btnTabInbound" onclick="switchTab('inbound')">📦 進貨驗收</button>
+      </div>
+    </div>
+    <div class="nav-group-row">
+      <span class="nav-group-title"><i class="fa-solid fa-cart-shopping"></i> 訂單與銷貨：</span>
+      <div class="nav-group-buttons">
+        <button type="button" class="tab-btn" id="btnTabSo" onclick="switchTab('so')">🛒 客戶訂單</button>
+        <button type="button" class="tab-btn" id="btnTabDelivery" onclick="switchTab('delivery')">🚚 銷貨出貨</button>
+        <button type="button" class="tab-btn" id="btnTabSalesPerf" onclick="switchTab('salesPerf')">🏆 業務業績與管銷</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1. 採購單系統 -->
+  <div id="purchaseView" class="app-view active">
+    <form id="purchaseForm" onsubmit="handlePoSubmit(event)">
+      <div class="section-block">
+        <div class="section-title">一、 採購基本資料與查詢修改</div>
+        <div class="grid-3">
+          <div class="form-group"><label class="required">採購人員</label><input type="text" id="po_buyer_name" value="{{ user_name }}" required></div>
+          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryPoRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">訂購日期</label><input type="date" id="po_order_date" required></div>
+        </div>
+        <div class="grid-2" style="margin-top:12px;">
+          <div class="form-group"><label class="required">交貨日期</label><input type="date" id="po_delivery_date" required></div>
+          <div class="form-group"><label class="required">廠商類別</label><select id="po_vendor_type" required><option value="" disabled selected hidden>請選擇</option><option value="國外廠商">國外廠商</option><option value="國內廠商">國內廠商</option></select></div>
+        </div>
+        <div class="grid-3" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
+          <div class="form-group"><label>供應商編號</label><input type="text" id="po_vendor_id" onblur="lookupVendorName('po')"></div>
+          <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="po_vendor_name" required></div>
+          <div class="form-group"><label>供應商聯絡人</label><input type="text" id="po_vendor_contact"></div>
+        </div>
+      </div>
+      <div class="section-block">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="section-title" style="margin-bottom:0; border:none; padding:0;">二、 採購品項明細</div>
+          <button type="button" class="btn-add-item" onclick="addPoItemRow()">＋ 新增品項</button>
+        </div>
+        <table class="items-table">
+          <thead><tr><th style="width:14%;">型號</th><th style="width:18%;">品名</th><th style="width:12%;">規格</th><th style="width:12%;">顏色</th><th style="width:7%;">數量</th><th style="width:11%;">單價</th><th style="width:13%;">金額</th><th style="width:7%;" class="no-print">操作</th></tr></thead>
+          <tbody id="poItemsBody"></tbody>
+          <tfoot><tr><td colspan="6" style="text-align:right; font-weight:bold;">總金額：</td><td colspan="2" style="font-weight:bold;"><span id="poGrandTotalText">0.00</span> <span id="poCurrencyLabel">NTD</span></td></tr></tfoot>
+        </table>
+      </div>
+    </form>
+  </div>
+
+  <!-- 2. 進貨驗收系統 (已修正：供應商編號與名稱獨立並排) -->
+  <div id="inboundView" class="app-view">
+    <form id="inboundForm" onsubmit="handleInboundSubmit(event)">
+      <div class="section-block">
+        <div class="section-title">一、 進貨基本資料與採購單轉入</div>
+        <div class="grid-3">
+          <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
+          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
+        </div>
+        <div class="grid-2" style="margin-top:12px;">
+          <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
+          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="in_po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
+        </div>
+        <!-- 供應商編號與供應商名稱獨立並排 -->
+        <div class="grid-2" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
+          <div class="form-group">
+            <label class="required">供應商編號</label>
+            <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號按離開" required>
+          </div>
+          <div class="form-group">
+            <label class="required">供應商名稱</label>
+            <input type="text" id="in_vendor_name" class="readonly" readonly required placeholder="自動帶出名稱">
+          </div>
+        </div>
+      </div>
+      <div class="section-block">
+        <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
+        <table class="items-table">
+          <thead><tr><th style="width:12%;">型號</th><th style="width:16%;">品名</th><th style="width:11%;">規格</th><th style="width:11%;">顏色</th><th style="width:12%;">入庫倉庫</th><th style="width:6%;">訂購</th><th style="width:7%;">實際</th><th style="width:11%;">單價</th><th style="width:12%;">金額</th></tr></thead>
+          <tbody id="inItemsBody"></tbody>
+          <tfoot><tr><td colspan="8" style="text-align:right; font-weight:bold;">總進貨金額：</td><td style="font-weight:bold;"><span id="inGrandTotalText">0.00</span></td></tr></tfoot>
+        </table>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="floating-action-bar" id="floatingBar">
+  <button type="button" class="btn-submit" onclick="submitCurrentForm()">💾 儲存當前頁面</button>
+  <button type="button" class="btn-print" onclick="window.print()">🖨️ 列印單據</button>
+  <button type="button" class="btn-reset" onclick="resetCurrentForm()">🔄 清空重設</button>
+  <button type="button" class="btn-logout" onclick="window.location.href='/logout'">🚪 登出</button>
+</div>
+
+<script>
+  let currentTab = 'purchase';
+  window.addEventListener('DOMContentLoaded', () => {
+    ['po_order_date', 'po_delivery_date', 'in_date'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.valueAsDate = new Date();
+    });
+    const mEl = document.getElementById('in_month'); if (mEl) mEl.value = new Date().toISOString().slice(0, 7);
+    for (let i = 0; i < 4; i++) { addPoItemRow(); }
+  });
+  function switchTab(tab) {
+    currentTab = tab;
+    ['purchase', 'inbound'].forEach(t => {
+      const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
+      const view = document.getElementById(t + 'View');
+      if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
+      if(view) view.className = (t === tab) ? 'app-view active' : 'app-view';
+    });
+  }
+  function lookupVendorName(type) {
+    const vId = document.getElementById(type === 'po' ? 'po_vendor_id' : 'in_vendor_id').value.trim();
+    if (!vId) return;
+    fetch(`/api/vendor/${vId}`).then(r => r.json()).then(res => {
+      if (res.found) document.getElementById(type === 'po' ? 'po_vendor_name' : 'in_vendor_name').value = res.vendor_name;
+    });
+  }
+  function addPoItemRow() {
+    const tbody = document.getElementById('poItemsBody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="text" class="po-model" placeholder="型號"></td><td><input type="text" class="po-name" placeholder="品名"></td><td><input type="text" class="po-size" placeholder="規格"></td><td><input type="text" class="po-color" placeholder="顏色"></td><td><input type="number" class="po-qty input-qty" min="0" oninput="calculatePoTotals()"></td><td><input type="number" class="po-price input-price" step="0.01" min="0" oninput="calculatePoTotals()"></td><td><input type="text" class="po-total readonly input-total" readonly></td><td class="no-print" style="text-align:center;"><button type="button" class="btn-del-item" onclick="this.closest('tr').remove(); calculatePoTotals();">刪除</button></td>`;
+    tbody.appendChild(tr);
+  }
+  function calculatePoTotals() {
+    let gt = 0;
+    document.querySelectorAll('#poItemsBody tr').forEach(row => {
+      const q = parseFloat(row.querySelector('.po-qty').value) || 0;
+      const p = parseFloat(row.querySelector('.po-price').value) || 0;
+      const t = q * p;
+      row.querySelector('.po-total').value = t ? t.toLocaleString('zh-TW', {minimumFractionDigits:2}) : '';
+      gt += t;
+    });
+    document.getElementById('poGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
+  }
+  function queryInboundRecord() {
+    const no = document.getElementById('in_no').value.trim();
+    if (!no) return alert("請輸入進貨單號");
+    fetch(`/api/inbound/${no}`).then(r => r.json()).then(res => {
+      if (res.found) {
+        const h = res.header;
+        document.getElementById('in_receiver_name').value = h.receiver_name;
+        document.getElementById('in_date').value = h.inbound_date;
+        document.getElementById('in_month').value = h.month;
+        document.getElementById('in_po_no').value = h.po_number;
+        document.getElementById('in_vendor_id').value = h.supplier_code || h.vendor_id || '';
+        document.getElementById('in_vendor_name').value = h.supplier_name || h.vendor_name || '';
+        alert("✔ 進貨單載入成功！");
+      } else alert(res.message);
+    });
+  }
+</script>
+</body>
+</html>
+"""
+
+SUPPLIERS_HTML = """
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8"><title>供應商管理 - 珮藏居系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark shadow-sm mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">珮藏居採購系統</a>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-light btn-sm">返回首頁</a>
+        </div>
+    </nav>
+    <div class="container-fluid px-4">
+        <h4 class="text-secondary mb-3">供應商清單管理</h4>
+    </div>
+</body>
+</html>
+"""
