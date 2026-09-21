@@ -93,8 +93,7 @@
       <span class="nav-group-title"><i class="fa-solid fa-address-book"></i> 基礎主檔管理：</span>
       <div class="nav-group-buttons">
         <button type="button" class="tab-btn" id="btnTabCustomer" onclick="switchTab('customer')">📇 客戶建立</button>
-        <!-- 改為內部頁籤按鈕，統一架構 -->
-        <button type="button" class="tab-btn" id="btnTabSupplier" onclick="switchTab('supplier')">📇 供應商建立</button>
+        <a href="{{ url_for('purchase.suppliers_page') }}" class="btn-supplier-link"><i class="fa-solid fa-truck-field"></i> 供應商管理</a>
       </div>
     </div>
     <div class="nav-group-row">
@@ -191,34 +190,44 @@
     </form>
   </div>
 
-  <div class="section-block">
+  <!-- 2. 進貨驗收系統 -->
+  <div id="inboundView" class="app-view">
+    <form id="inboundForm" onsubmit="handleInboundSubmit(event)">
+      <div class="section-block">
         <div class="section-title">一、 進貨基本資料與採購單轉入</div>
-        
-        <!-- 第一行：收貨人員、進貨單號、進貨日期 -->
         <div class="grid-3">
           <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
           <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
         </div>
-        
-        <!-- 第二行：歸屬月份、採購編號 -->
-        <div class="grid-2" style="margin-top:12px;">
+        <div class="grid-3" style="margin-top:12px;">
           <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
-          <div class="form-group"><label class="required">採購編號</label><div style="display:flex; gap:6px;"><input type="text" id="in_po_no" required style="flex:1;"><button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button></div></div>
-        </div>
-
-        <!-- 第三行：供應商編號與供應商名稱並排（最符合操作直覺） -->
-        <div class="grid-2" style="margin-top:12px; border-top:1px dashed #cbd5e1; padding-top:12px;">
+          <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
           <div class="form-group">
-            <label class="required">供應商編號</label>
-            <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號按離開" required>
+            <label class="required">廠商編號</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號" style="flex:1;" required>
+              <button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button>
+            </div>
           </div>
+        </div>
+        <div class="grid-2" style="margin-top:12px;">
           <div class="form-group">
             <label class="required">供應商名稱</label>
-            <input type="text" id="in_vendor_name" class="readonly" readonly required placeholder="自動帶出名稱">
+            <input type="text" id="in_vendor_name" class="readonly" readonly required>
           </div>
         </div>
       </div>
+      <div class="section-block">
+        <div class="section-title">二、 進貨驗收明細與入庫倉庫</div>
+        <table class="items-table">
+          <thead><tr><th style="width:12%;">型號</th><th style="width:16%;">品名</th><th style="width:11%;">規格</th><th style="width:11%;">顏色</th><th style="width:12%;">入庫倉庫</th><th style="width:6%;">訂購</th><th style="width:7%;">實際</th><th style="width:11%;">單價</th><th style="width:12%;">金額</th></tr></thead>
+          <tbody id="inItemsBody"></tbody>
+          <tfoot><tr><td colspan="8" style="text-align:right; font-weight:bold;">總進貨金額：</td><td style="font-weight:bold;"><span id="inGrandTotalText">0.00</span></td></tr></tfoot>
+        </table>
+      </div>
+    </form>
+  </div>
 
   <!-- 3. 客戶訂單系統 -->
   <div id="soView" class="app-view">
@@ -375,40 +384,6 @@
       </table>
     </div>
   </div>
-<!-- 6.5 供應商建立系統 (與客戶建立完全一致) -->
-  <div id="supplierView" class="app-view">
-    <div style="padding:22px 30px;">
-      <div class="card p-3 mb-4 bg-light border">
-        <h6 class="fw-bold text-primary mb-2">📇 供應商資料建檔與維護（含地址與銀行資訊）</h6>
-        <form id="supplierForm" onsubmit="handleSupplierSave(event)" style="padding:0;">
-          <div class="row g-2">
-            <div class="col-3"><label class="form-label">供應商代號 *</label><input type="text" id="suppCode" class="form-control form-control-sm" placeholder="例: S001" required></div>
-            <div class="col-3"><label class="form-label">供應商名稱 / 抬頭 *</label><input type="text" id="suppName" class="form-control form-control-sm" placeholder="供應商公司名稱" required></div>
-            <div class="col-3"><label class="form-label">統一編號</label><input type="text" id="suppTaxId" class="form-control form-control-sm" placeholder="統一編號"></div>
-            <div class="col-3"><label class="form-label">聯絡電話</label><input type="text" id="suppPhone" class="form-control form-control-sm" placeholder="電話號碼"></div>
-          </div>
-          <div class="row g-2 mt-2">
-            <div class="col-3"><label class="form-label">付款條件</label><input type="text" id="suppTerms" class="form-control form-control-sm" value="月結30天"></div>
-            <div class="col-6"><label class="form-label text-primary">供應商地址</label><input type="text" id="suppAddress" class="form-control form-control-sm" placeholder="完整通訊地址"></div>
-            <div class="col-3 d-flex align-items-end gap-1">
-              <button type="submit" class="btn btn-success btn-sm w-100 fw-bold">💾 儲存供應商</button>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="resetSuppForm()">重設</button>
-            </div>
-          </div>
-        </form>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="fw-bold text-dark mb-0">📋 供應商主檔清單</h6>
-        <button class="btn-query btn-sm" onclick="loadSuppliers()">🔄 重新整理</button>
-      </div>
-      <table class="items-table">
-        <thead><tr><th>供應商代號</th><th>供應商名稱/抬頭</th><th>統一編號</th><th>聯絡電話</th><th>付款條件</th><th>供應商地址</th><th class="no-print text-center">操作</th></tr></thead>
-        <tbody id="suppTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
 
   <!-- 7. 進退/銷退單據系統 -->
   <div id="transView" class="app-view">
@@ -1214,13 +1189,8 @@
     if (!poNo) return alert("請輸入採購編號");
     fetch(`/api/po/${poNo}`).then(r => r.json()).then(res => {
       if (res.found) {
-        // 雙保險：不管是 supplier_code, vendor_id 還是 supplierCode，只要有一個有值就抓進來
-        const vId = res.header.supplier_code || res.header.vendor_id || res.header.supplierCode || '';
-        const vName = res.header.supplier_name || res.header.vendor_name || res.header.supplierName || '';
-        
-        document.getElementById('in_vendor_id').value = vId;
-        document.getElementById('in_vendor_name').value = vName;
-        
+        document.getElementById('in_vendor_id').value = res.header.supplier_code;
+        document.getElementById('in_vendor_name').value = res.header.supplier_name;
         const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
         res.items.forEach(it => {
           tbody.innerHTML += `<tr><td><input type="text" class="in-model readonly" value="${it.model}" readonly></td><td><input type="text" class="in-name readonly" value="${it.name}" readonly></td><td><input type="text" class="in-size readonly" value="${it.size}" readonly></td><td><input type="text" class="in-color readonly" value="${it.color}" readonly></td><td><select class="in-wh">${generateWarehouseSelectOptions('八里倉')}</select></td><td><input type="text" class="in-ordered readonly" value="${it.qty}" readonly style="text-align:center;"></td><td><input type="number" class="in-actual input-qty" value="${it.qty}" min="0" oninput="calculateInTotals()" required></td><td><input type="text" class="in-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="in-total readonly input-total" readonly></td></tr><tr><td colspan="9" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
@@ -1230,6 +1200,7 @@
       } else alert("找不到採購單");
     });
   }
+
   function calculateInTotals() {
     let gt = 0;
     document.querySelectorAll('#inItemsBody tr:not(:nth-child(even))').forEach(r => {
@@ -1268,20 +1239,22 @@
     fetch(`/api/inbound/${no}`).then(r => r.json()).then(res => {
       if (res.found) {
         const h = res.header;
-        document.getElementById('in_receiver_name').value = h.receiver_name || '';
-        document.getElementById('in_date').value = h.inbound_date || '';
-        document.getElementById('in_month').value = h.month || '';
-        document.getElementById('in_po_no').value = h.po_no || '';
-        
-        // 確保這裡精準對應後端回傳的欄位
-        document.getElementById('in_vendor_id').value = h.vendor_id || '';
-        document.getElementById('in_vendor_name').value = h.vendor_name || '';
-        
-        // ... (下方品項表格渲染維持不變) ...
+        document.getElementById('in_receiver_name').value = h.receiver_name;
+        document.getElementById('in_date').value = h.inbound_date;
+        document.getElementById('in_month').value = h.month;
+        document.getElementById('in_po_no').value = h.po_number;
+        document.getElementById('in_vendor_id').value = h.supplier_code;
+        document.getElementById('in_vendor_name').value = h.supplier_name;
+        const tbody = document.getElementById('inItemsBody'); tbody.innerHTML = '';
+        res.items.forEach(it => {
+          tbody.innerHTML += `<tr><td><input type="text" class="in-model readonly" value="${it.model}" readonly></td><td><input type="text" class="in-name readonly" value="${it.name}" readonly></td><td><input type="text" class="in-size readonly" value="${it.size}" readonly></td><td><input type="text" class="in-color readonly" value="${it.color}" readonly></td><td><select class="in-wh">${generateWarehouseSelectOptions(it.warehouse)}</select></td><td><input type="text" class="in-ordered readonly" value="${it.ordered_qty}" readonly style="text-align:center;"></td><td><input type="number" class="in-actual input-qty" value="${it.actual_qty}" min="0" oninput="calculateInTotals()" required></td><td><input type="text" class="in-price readonly input-price" value="${it.unit_price}" readonly></td><td><input type="text" class="in-total readonly input-total" readonly></td></tr><tr><td colspan="9" style="padding:2px 4px; background:#fafafa;"><input type="text" class="item-remarks" value="${it.remarks||''}"></td></tr>`;
+        });
+        calculateInTotals();
         alert("✔ 進貨單載入成功！");
       } else alert(res.message);
     });
   }
+
   // 客戶訂單明細
   function addSoItemRow() {
     const tbody = document.getElementById('soItemsBody');
@@ -2516,70 +2489,6 @@
         else alert("失敗");
       });
   }
-</script>// 記得在 switchTab 陣列中加入 'supplier'
-  // 並且在 DOMContentLoaded 內加入 loadSuppliers();
-
-  function loadSuppliers() {
-    fetch('/api/suppliers/list').then(r => r.json()).then(data => {
-      const tb = document.getElementById('suppTableBody'); tb.innerHTML = '';
-      if (!data || !data.length) { tb.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-muted">尚無供應商資料</td></tr>`; return; }
-      data.forEach(s => {
-        tb.innerHTML += `<tr>
-          <td><strong>${s.supplier_code}</strong></td>
-          <td class="text-start">${s.supplier_name}</td>
-          <td>${s.tax_id||'-'}</td>
-          <td>${s.phone||'-'}</td>
-          <td>${s.payment_terms||'月結30天'}</td>
-          <td><span class="text-primary">${s.address||'未填地址'}</span></td>
-          <td class="text-center no-print">
-            <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick='editSupplier(${JSON.stringify(s)})'>✏️ 修改</button>
-            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteSupplier('${s.supplier_code}')">🗑️ 刪除</button>
-          </td>
-        </tr>`;
-      });
-    });
-  }
-
-  function handleSupplierSave(e) {
-    e.preventDefault();
-    const payload = {
-      supplier_code: document.getElementById('suppCode').value.trim(),
-      supplier_name: document.getElementById('suppName').value.trim(),
-      tax_id: document.getElementById('suppTaxId').value.trim(),
-      phone: document.getElementById('suppPhone').value.trim(),
-      payment_terms: document.getElementById('suppTerms').value.trim(),
-      address: document.getElementById('suppAddress').value.trim()
-    };
-    fetch('/api/suppliers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) { resetSuppForm(); loadSuppliers(); }
-      });
-  }
-
-  function editSupplier(s) {
-    document.getElementById('suppCode').value = s.supplier_code;
-    document.getElementById('suppCode').readOnly = true;
-    document.getElementById('suppName').value = s.supplier_name;
-    document.getElementById('suppTaxId').value = s.tax_id || '';
-    document.getElementById('suppPhone').value = s.phone || '';
-    document.getElementById('suppTerms').value = s.payment_terms || '月結30天';
-    document.getElementById('suppAddress').value = s.address || '';
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  }
-
-  function deleteSupplier(code) {
-    if (confirm(`確定要刪除供應商【${code}】嗎？`)) {
-      fetch(`/api/suppliers/delete/${code}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if(res.success) loadSuppliers();
-      });
-    }
-  }
-
-  function resetSuppForm() {
-    document.getElementById('supplierForm').reset();
-    document.getElementById('suppCode').readOnly = false;
-  }
+</script>
 </body>
 </html>
