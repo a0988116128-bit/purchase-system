@@ -1443,19 +1443,36 @@ MAIN_HTML = """
   });
   function switchTab(tab) {
     currentTab = tab;
-    ['purchase', 'inbound'].forEach(t => {
+    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'supplier', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
       if(view) view.className = (t === tab) ? 'app-view active' : 'app-view';
     });
+
   }
   function lookupVendorName(type) {
-    const vId = document.getElementById(type === 'po' ? 'po_vendor_id' : 'in_vendor_id').value.trim();
+    const vIdInputId = (type === 'po') ? 'po_vendor_id' : 'in_vendor_id';
+    const vNameInputId = (type === 'po') ? 'po_vendor_name' : 'in_vendor_name';
+    
+    const vId = document.getElementById(vIdInputId).value.trim();
     if (!vId) return;
-    fetch(`/api/vendor/${vId}`).then(r => r.json()).then(res => {
-      if (res.found) document.getElementById(type === 'po' ? 'po_vendor_name' : 'in_vendor_name').value = res.vendor_name;
-    });
+
+    fetch(`/api/vendor/${vId}`)
+      .then(r => r.json())
+      .then(res => {
+        if (res.found) {
+          document.getElementById(vNameInputId).value = res.vendor_name;
+        } else {
+          alert("⚠️ 查無此供應商代號！請先至「供應商建立」頁面建檔。");
+          document.getElementById(vNameInputId).value = '';
+        }
+      })
+      .catch(err => {
+        console.error("查詢供應商發生錯誤:", err);
+      });
+  }
+
   }
   function addPoItemRow() {
     const tbody = document.getElementById('poItemsBody');
