@@ -1230,6 +1230,55 @@ def add_supplier():
     except Exception as e: print(e)
     return redirect(url_for("suppliers_page"))
 
+# --- 供應商管理 API ---
+@app.route("/api/suppliers/list")
+def api_get_suppliers():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM suppliers ORDER BY supplier_code")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/suppliers/save", methods=["POST"])
+def api_save_supplier():
+    if "user_id" not in session: 
+        return jsonify({"success": False, "message": "請先登入"})
+    data = request.get_json()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO suppliers (supplier_code, supplier_name, tax_id, phone, payment_terms, address)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (supplier_code) DO UPDATE 
+            SET supplier_name = EXCLUDED.supplier_name, tax_id = EXCLUDED.tax_id, 
+                phone = EXCLUDED.phone, payment_terms = EXCLUDED.payment_terms, address = EXCLUDED.address
+        """, (data.get("supplier_code"), data.get("supplier_name"), data.get("tax_id"),
+              data.get("phone"), data.get("payment_terms"), data.get("address")))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 供應商資料存檔/修改成功！"})
+    except Exception as e: 
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route("/api/suppliers/delete/", methods=["POST"])
+def api_delete_supplier(code):
+    if "user_id" not in session: 
+        return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM suppliers WHERE supplier_code = %s", (code,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 供應商刪除成功！"})
+    except Exception as e: 
+        return jsonify({"success": False, "message": str(e)})
+
 @app.route("/suppliers/edit/<string:code>", methods=["POST"])
 def edit_supplier(code):
     try:
