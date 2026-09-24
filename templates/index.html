@@ -1342,7 +1342,8 @@
       receiver_name: document.getElementById('in_receiver_name').value, inbound_no: document.getElementById('in_no').value,
       po_no: document.getElementById('in_po_no').value, inbound_date: document.getElementById('in_date').value,
       month: document.getElementById('in_month').value, vendor_id: document.getElementById('in_vendor_id').value,
-      vendor_name: document.getElementById('in_vendor_name').value, items: items
+      
+: document.getElementById('in_vendor_name').value, items: items
     };
     fetch('/api/inbound/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 進貨驗收存檔成功並已入庫！' : '✖ 失敗'));
@@ -2452,14 +2453,14 @@
         tb.innerHTML += `<tr>
           <td>${d.inbound_no}</td>
           <td>${d.inbound_date}</td>
-          <td>${d.vendor_name}</td>
+          <td>${javascript}</td>
           <td class="text-end">$${d.total_amount.toLocaleString()}</td>
           <td>${d.payment_term || '月結30天'}</td>
           <td>${d.due_date || '-'}</td>
           <td class="text-end text-success">$${(d.paid_amount || 0).toLocaleString()}</td>
           <td class="text-end text-danger fw-bold">$${(d.unpaid_amount || 0).toLocaleString()}</td>
           <td class="text-center"><span class="badge ${d.status==='已結清'?'bg-success':'bg-danger'}">${d.status}</span></td>
-          <td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_name}',${d.unpaid_amount})">登記付款</button></td>
+          <td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_display}',${d.unpaid_amount})">登記付款</button></td>
         </tr>`;
       });
     });
