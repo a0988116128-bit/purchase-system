@@ -2810,8 +2810,6 @@ function handleModalSubmit(e) {
     pay_method: document.getElementById('modalMethod').value, 
     remarks: document.getElementById('modalRemarks').value
   };
-}
-
   fetch('/api/ap/pay', {
     method: 'POST', 
     headers: { 'Content-Type': 'application/json' }, 
@@ -2826,19 +2824,7 @@ function handleModalSubmit(e) {
     } else { 
       alert(res.message || "失敗"); 
     }
-  })
-  .catch(err => console.error('付款登記失敗:', err));
-}
-
-if (res.status === 'success') { 
-          alert("✔ 付款登記成功！"); 
-          closeModal(); 
-          if (typeof loadAP === 'function') loadAP(); 
-        } else { 
-          alert(res.message || "失敗"); 
-        }
-      });
-    }
-</script>
+  });
+}</script>
 </body>
 </html>
