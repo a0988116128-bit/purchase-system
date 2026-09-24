@@ -1279,6 +1279,26 @@ def api_delete_supplier(code):
     except Exception as e: 
         return jsonify({"success": False, "message": str(e)})
 
+@app.route("/api/inbound/delete/", methods=["POST"])
+def delete_inbound(in_no):
+    if "user_id" not in session: 
+        return jsonify({"success": False, "message": "請先登入"})
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # 先刪除關聯的應付帳款付款紀錄與應付發票，避免資料庫衝突
+        cursor.execute("DELETE FROM ap_payments WHERE inbound_no = %s", (in_no,))
+        cursor.execute("DELETE FROM ap_invoices WHERE inbound_no = %s", (in_no,))
+        # 刪除進貨明細與主檔
+        cursor.execute("DELETE FROM inbound_items WHERE inbound_no = %s", (in_no,))
+        cursor.execute("DELETE FROM inbound_orders WHERE inbound_no = %s", (in_no,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "✔ 進貨單刪除成功！"})
+    except Exception as e: 
+        return jsonify({"success": False, "message": str(e)})
+
 @app.route("/suppliers/edit/<string:code>", methods=["POST"])
 def edit_supplier(code):
     try:
