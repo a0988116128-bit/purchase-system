@@ -248,32 +248,22 @@
         <div class="section-title">一、 進貨基本資料與採購單轉入</div>
         <div class="grid-3">
           <div class="form-group"><label class="required">收貨人員</label><input type="text" id="in_receiver_name" value="{{ user_name }}" required></div>
-          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
+          <div class="form-group"><label class="required">進貨單號</label><div style="display:flex; gap:6px;"><input type="text" id="in_no" placeholder="例: IN20260901" required style="flex:1;"><button type="button" class="btn-query" onclick="queryInboundRecord()">🔍 查詢</button></div></div>
           <div class="form-group"><label class="required">進貨日期</label><input type="date" id="in_date" required onchange="autoFillMonth()"></div>
         </div>
-        <!-- 請確認 inboundView 內有這段 -->
-<div class="grid-3" style="margin-top:12px;">
-  <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
-  <div class="form-group"><label class="required">採購編號</label><input type="text" id="in_po_no" required></div>
-  <div class="form-group">
-    <label class="required">廠商編號 (代號)</label>
-    <div style="display:flex; gap:6px;">
-      <input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="輸入代號" style="flex:1;" required>
-      <button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button>
-    </div>
-  </div>
-</div>
-<div class="grid-2" style="margin-top:12px;">
-  <div class="form-group">
-    <label class="required">供應商名稱</label>
-    <input type="text" id="in_vendor_name" class="readonly" readonly required>
-  </div>
-</div>
-        <div class="grid-2" style="margin-top:12px;">
+        <div class="grid-3" style="margin-top:12px;">
+          <div class="form-group"><label class="required">歸屬月份</label><input type="text" id="in_month" required></div>
           <div class="form-group">
-            <label class="required">供應商名稱</label>
-            <input type="text" id="in_vendor_name" class="readonly" readonly required>
+            <label class="required">採購編號</label>
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="in_po_no" placeholder="例: PO20260901" required style="flex:1;">
+              <button type="button" class="btn-query" onclick="importFromPo()">📥 轉入PO</button>
+            </div>
           </div>
+          <div class="form-group"><label class="required">供應商代號</label><input type="text" id="in_vendor_id" onblur="lookupVendorName('in')" placeholder="例: S001" required></div>
+        </div>
+        <div class="grid-2" style="margin-top:12px;">
+          <div class="form-group"><label class="required">供應商名稱</label><input type="text" id="in_vendor_name" class="readonly" readonly required></div>
         </div>
       </div>
       <div class="section-block">
@@ -1053,7 +1043,7 @@
       return;
     }
 
-    ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'supplier', 'trans', 'salesPerf', 'creditCard', 'invoice', 'hr', 'payroll', 'apPro', 'arPro', 'printCenter', 'ap', 'ar', 'finance'].forEach(t => {
+   ['purchase', 'inbound', 'so', 'delivery', 'inventory', 'customer', 'supplier', ...].forEach(t => {
       const btn = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
       const view = document.getElementById(t + 'View');
       if(btn) btn.className = (t === tab) ? 'tab-btn active' : 'tab-btn';
@@ -1421,7 +1411,7 @@ function lookupVendorName(type) {
   function onSoModelBlur(inputElem) {
     const skuVal = inputElem.value.trim();
     if (!skuVal) return;
-    const found = cachedInventory.find(item => item.sku.toLowerCase() === skuVal.toLowerCase());
+    const found = cachedInventory.find(item => item.sku.toLowerCase() === skuVal.toLowerCase());id="inboundView"
     const row = inputElem.closest('tr');
     if (found) {
       row.querySelector('.so-name').value = found.name || '';
