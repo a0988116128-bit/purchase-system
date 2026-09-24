@@ -2435,7 +2435,7 @@
 
       let filtered = res.data.filter(d => {
         let dt = d.inbound_date || '';
-        let vDisplay = (d.vendor_name || '').toLowerCase();
+        let vDisplay = (d.vendor_display || '').toLowerCase();
         if (fInput && !vDisplay.includes(fInput)) return false;
         if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
         if (fStart && dt && dt < fStart) return false;
