@@ -1028,7 +1028,7 @@
 
   function switchTab(tab) {
     currentTab = tab;
-    const isAccountant = {{ 'true' if is_accountant else 'false' }};
+    const isAccountant = "{{ 'true' if is_accountant else 'false' }}" === "true";
     const accountantTabs = ['ap', 'apPro', 'ar', 'arPro', 'printCenter', 'finance', 'payroll'];
     if (accountantTabs.includes(tab) && !isAccountant) {
       alert("⚠️ 此功能僅限會計人員 (EMP01 / EMP02) 使用！");
@@ -1326,7 +1326,7 @@
     document.getElementById('inGrandTotalText').innerText = gt.toLocaleString('zh-TW', {minimumFractionDigits:2});
   }
 
-  function handleInboundSubmit(e) {
+ function handleInboundSubmit(e) {
     e.preventDefault();
     let items = [];
     document.querySelectorAll('#inItemsBody tr:not(:nth-child(even))').forEach(r => {
@@ -1339,11 +1339,14 @@
       });
     });
     const payload = {
-      receiver_name: document.getElementById('in_receiver_name').value, inbound_no: document.getElementById('in_no').value,
-      po_no: document.getElementById('in_po_no').value, inbound_date: document.getElementById('in_date').value,
-      month: document.getElementById('in_month').value, vendor_id: document.getElementById('in_vendor_id').value,
-      
-: document.getElementById('in_vendor_name').value, items: items
+      receiver_name: document.getElementById('in_receiver_name').value, 
+      inbound_no: document.getElementById('in_no').value,
+      po_no: document.getElementById('in_po_no').value, 
+      inbound_date: document.getElementById('in_date').value,
+      month: document.getElementById('in_month').value, 
+      vendor_id: document.getElementById('in_vendor_id').value,
+      vendor_name: document.getElementById('in_vendor_name').value, // ✅ 已補上正確屬性名稱
+      items: items
     };
     fetch('/api/inbound/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
       .then(r => r.json()).then(res => alert(res.status === 'success' ? '✔ 進貨驗收存檔成功並已入庫！' : '✖ 失敗'));
@@ -2417,27 +2420,81 @@
     });
   }
 
-  // AP, AR, 財務載入
-  function loadAP() {
-    const fInput = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
-    const fMonth = document.getElementById('ap_filter_month').value;
-    const fStart = document.getElementById('ap_filter_start').value;
-    const fEnd = document.getElementById('ap_filter_end').value;
+ /// AP, AR, 財務載入
+function loadAP() {
+  const fInput = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
+  const fMonth = document.getElementById('ap_filter_month').value;
+  const fStart = document.getElementById('ap_filter_start').value;
+  const fEnd = document.getElementById('ap_filter_end').value;
 
-    fetch('/api/ap/summary').then(r => r.json()).then(res => {
+  fetch('/api/ap/summary')
+    .then(r => r.json())
+    .then(res => {
       const tb = document.getElementById('apTableBody'); 
       if (!tb) return;
-      tb.innerHTML = '';
       
+      tb.innerHTML = ''; // 清空原本的表格內容
+      
+      // 1. 檢查如果沒有資料，顯示「查無資料」的表格列
       if (!res.data || !res.data.length) { 
-        tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">目前無應付帳款資料</td></tr>`; 
+        tb.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align: center;">沒有符合的資料</td>
+          </tr>
+        `;
+        return; // 結束函式
+      }
+
+      // 2. 如果有資料，使用迴圈將資料渲染出來（範例結構）
+      res.data.forEach(item => {
+        // 這裡可以加上你的過濾邏輯 (fInput, fMonth 等)
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${item.vendor || ''}</td>
+          <td>${item.date || ''}</td>
+          <td>${item.amount || 0}</td>
+        `;
+        tb.appendChild(tr);
+      });
+    })
+    .catch(err => console.error('載入失敗:', err));
+}
+
+        
+ // AP, AR, 財務載入
+function resetApFilter() { 
+  document.getElementById('ap_filter_vendor').value = ''; 
+  document.getElementById('ap_filter_month').value = ''; 
+  document.getElementById('ap_filter_start').value = ''; 
+  document.getElementById('ap_filter_end').value = ''; 
+  loadAP(); 
+}
+
+function loadAR() {
+  const fCust = document.getElementById('ar_filter_customer').value.trim().toLowerCase();
+  const fMonth = document.getElementById('ar_filter_month').value;
+  const fStart = document.getElementById('ar_filter_start').value;
+  const fEnd = document.getElementById('ar_filter_end').value;
+
+  fetch('/api/ar/summary')
+    .then(r => r.json())
+    .then(res => {
+      const tb = document.getElementById('arTableBody'); 
+      if (!tb) return;
+      tb.innerHTML = '';
+
+      // 安全檢查：確保 res.data 存在
+      if (!res.data || !res.data.length) { 
+        tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">無應收帳款資料</td></tr>`; 
         return; 
       }
 
+      // 進行資料篩選
       let filtered = res.data.filter(d => {
-        let dt = d.inbound_date || '';
-        let vDisplay = (d.vendor_display || '').toLowerCase();
-        if (fInput && !vDisplay.includes(fInput)) return false;
+        let dt = d.delivery_date;
+        let cName = (d.customer_display || '').toLowerCase();
+        if (fCust && !cName.includes(fCust)) return false;
         if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
         if (fStart && dt && dt < fStart) return false;
         if (fEnd && dt && dt > fEnd) return false;
@@ -2445,167 +2502,333 @@
       });
 
       if (!filtered.length) { 
-        tb.innerHTML = `<tr><td colspan="10" class="text-center py-3 text-muted">查無符合條件的應付帳款</td></tr>`; 
+        tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">查無符合條件的應收帳款</td></tr>`; 
         return; 
       }
 
+      // 效能優化：用陣列收集 HTML，最後一次渲染
+      let htmlRows = '';
       filtered.forEach(d => {
-        tb.innerHTML += `<tr>
-          <td>${d.inbound_no}</td>
-          <td>${d.inbound_date}</td>
-          <td>${javascript}</td>
-          <td class="text-end">$${d.total_amount.toLocaleString()}</td>
-          <td>${d.payment_term || '月結30天'}</td>
-          <td>${d.due_date || '-'}</td>
-          <td class="text-end text-success">$${(d.paid_amount || 0).toLocaleString()}</td>
-          <td class="text-end text-danger fw-bold">$${(d.unpaid_amount || 0).toLocaleString()}</td>
-          <td class="text-center"><span class="badge ${d.status==='已結清'?'bg-success':'bg-danger'}">${d.status}</span></td>
-          <td class="no-print text-center"><button class="btn btn-query btn-sm py-0 px-2" onclick="openModal('ap','${d.inbound_no}','${d.vendor_display}',${d.unpaid_amount})">登記付款</button></td>
+        htmlRows += `<tr>
+          <td>${d.do_number || ''}</td>
+          <td>${d.delivery_date || ''}</td>
+          <td>${d.customer_display || ''}</td>
+          <td class="text-end">$${(d.total_amount || 0).toLocaleString()}</td>
+          <td>${d.payment_term || ''}</td>
+          <td>${d.due_date || ''}</td>
+          <td class="text-end text-success">$${(d.collected_amount || 0).toLocaleString()}</td>
+          <td class="text-end text-danger fw-bold">$${(d.uncollected_amount || 0).toLocaleString()}</td>
+          <td class="text-center">
+            <span class="badge ${d.status === '已收清' ? 'bg-success' : 'bg-danger'}">${d.status || ''}</span>
+          </td>
         </tr>`;
       });
+      tb.innerHTML = htmlRows;
+    })
+    .catch(err => console.error('AR 載入失敗:', err));
+}
+
+function resetArFilter() { 
+  document.getElementById('ar_filter_customer').value = ''; 
+  document.getElementById('ar_filter_month').value = ''; 
+  document.getElementById('ar_filter_start').value = ''; 
+  document.getElementById('ar_filter_end').value = ''; 
+  loadAR(); 
+}
+
+// 傳票
+function addVoucherItemRow() {
+  const tbody = document.getElementById('vItemsBody');
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="form-control form-control-sm v-code" placeholder="代號"></td>
+    <td><input type="text" class="form-control form-control-sm v-name" placeholder="名稱"></td>
+    <td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
+    <td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
+    <td class="text-center">
+      <button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button>
+    </td>`;
+  tbody.appendChild(tr);
+}
+
+function calcVoucherTotals() {
+  let dr = 0, cr = 0;
+  document.querySelectorAll('.v-dr').forEach(el => { dr += parseFloat(el.value) || 0; });
+  document.querySelectorAll('.v-cr').forEach(el => { cr += parseFloat(el.value) || 0; });
+  
+  const vTotalDr = document.getElementById('vTotalDr');
+  const vTotalCr = document.getElementById('vTotalCr');
+  if (vTotalDr) vTotalDr.innerText = dr.toFixed(2);
+  if (vTotalCr) vTotalCr.innerText = cr.toFixed(2);
+}
+
+function handleVoucherSave(e) {
+  e.preventDefault();
+  let items = [];
+  let dr = 0, cr = 0;
+  
+  document.querySelectorAll('#vItemsBody tr').forEach(tr => {
+    const dVal = parseFloat(tr.querySelector('.v-dr').value) || 0;
+    const cVal = parseFloat(tr.querySelector('.v-cr').value) || 0;
+    dr += dVal; 
+    cr += cVal;
+    items.push({
+      account_code: tr.querySelector('.v-code').value.trim(),
+      account_name: tr.querySelector('.v-name').value.trim(),
+      debit: dVal, 
+      credit: cVal
     });
-  }
+  });
 
-  function resetApFilter() { 
-    document.getElementById('ap_filter_vendor').value = ''; 
-    document.getElementById('ap_filter_month').value = ''; 
-    document.getElementById('ap_filter_start').value = ''; 
-    document.getElementById('ap_filter_end').value = ''; 
-    loadAP(); 
-  }
-
-  function loadAR() {
-    const fCust = document.getElementById('ar_filter_customer').value.trim().toLowerCase();
-    const fMonth = document.getElementById('ar_filter_month').value;
-    const fStart = document.getElementById('ar_filter_start').value;
-    const fEnd = document.getElementById('ar_filter_end').value;
-    fetch('/api/ar/summary').then(r => r.json()).then(res => {
-      const tb = document.getElementById('arTableBody'); tb.innerHTML = '';
-      if (!res.data.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">無應收帳款資料</td></tr>`; return; }
-      let filtered = res.data.filter(d => {
-        let dt = d.delivery_date;
-        let cName = d.customer_display.toLowerCase();
-        if (fCust && !cName.includes(fCust)) return false;
-        if (fMonth && dt && dt.slice(0, 7) !== fMonth) return false;
-        if (fStart && dt && dt < fStart) return false;
-        if (fEnd && dt && dt > fEnd) return false;
-        return true;
-      });
-      if (!filtered.length) { tb.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-muted">查無符合條件的應收帳款</td></tr>`; return; }
-      filtered.forEach(d => {
-        tb.innerHTML += `<tr><td>${d.do_number}</td><td>${d.delivery_date}</td><td>${d.customer_display}</td><td class="text-end">$${d.total_amount.toLocaleString()}</td><td>${d.payment_term}</td><td>${d.due_date}</td><td class="text-end text-success">$${d.collected_amount.toLocaleString()}</td><td class="text-end text-danger fw-bold">$${d.uncollected_amount.toLocaleString()}</td><td class="text-center"><span class="badge ${d.status==='已收清'?'bg-success':'bg-danger'}">${d.status}</span></td></tr>`;
-      });
+  // 儲存傳票
+function handleVoucherSave(e) {
+  e.preventDefault();
+  let items = [];
+  let dr = 0, cr = 0;
+  
+  document.querySelectorAll('#vItemsBody tr').forEach(tr => {
+    const dVal = parseFloat(tr.querySelector('.v-dr').value) || 0;
+    const cVal = parseFloat(tr.querySelector('.v-cr').value) || 0;
+    dr += dVal; 
+    cr += cVal;
+    items.push({
+      account_code: tr.querySelector('.v-code').value.trim(),
+      account_name: tr.querySelector('.v-name').value.trim(),
+      debit: dVal, 
+      credit: cVal
     });
+  });
+
+  // 判斷借貸平衡
+  if (Math.abs(dr - cr) > 0.01) {
+    return alert(`⚠️ 借貸不平衡！借方總計 (${dr.toFixed(2)}) 與貸方總計 (${cr.toFixed(2)}) 不符。`);
   }
 
-  function resetArFilter() { document.getElementById('ar_filter_customer').value = ''; document.getElementById('ar_filter_month').value = ''; document.getElementById('ar_filter_start').value = ''; document.getElementById('ar_filter_end').value = ''; loadAR(); }
+  const payload = {
+    voucher_no: document.getElementById('vNo').value.trim(),
+    voucher_date: document.getElementById('vDate').value,
+    voucher_type: document.getElementById('vType').value,
+    summary: document.getElementById('vSummary').value.trim(),
+    preparer: document.getElementById('vPreparer').value,
+    items: items
+  };
 
-  // 傳票
-  function addVoucherItemRow() {
-    const tbody = document.getElementById('vItemsBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td><input type="text" class="form-control form-control-sm v-code" placeholder="代號"></td><td><input type="text" class="form-control form-control-sm v-name" placeholder="名稱"></td><td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td><td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td><td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button></td>`;
-    tbody.appendChild(tr);
-  }
-
-  function calcVoucherTotals() {
-    let dr = 0, cr = 0;
-    document.querySelectorAll('.v-dr').forEach(el => { dr += parseFloat(el.value) || 0; });
-    document.querySelectorAll('.v-cr').forEach(el => { cr += parseFloat(el.value) || 0; });
-    document.getElementById('vTotalDr').innerText = dr.toFixed(2);
-    document.getElementById('vTotalCr').innerText = cr.toFixed(2);
-  }
-
-  function handleVoucherSave(e) {
-    e.preventDefault();
-    let items = [];
-    let dr = 0, cr = 0;
-    document.querySelectorAll('#vItemsBody tr').forEach(tr => {
-      const dVal = parseFloat(tr.querySelector('.v-dr').value) || 0;
-      const cVal = parseFloat(tr.querySelector('.v-cr').value) || 0;
-      dr += dVal; cr += cVal;
-      items.push({
-        account_code: tr.querySelector('.v-code').value.trim(),
-        account_name: tr.querySelector('.v-name').value.trim(),
-        debit: dVal, credit: cVal
-      });
-    });
-
-    if (Math.abs(dr - cr) > 0.01) return alert(`⚠️ 借貸不平衡！借方總計 (${dr.toFixed(2)}) 與貸方總計 (${cr.toFixed(2)}) 不符。`);
-
-    const payload = {
-      voucher_no: document.getElementById('vNo').value.trim(),
-      voucher_date: document.getElementById('vDate').value,
-      voucher_type: document.getElementById('vType').value,
-      summary: document.getElementById('vSummary').value.trim(),
-      preparer: document.getElementById('vPreparer').value,
-      items: items
-    };
-
-    fetch('/api/vouchers/save', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        alert(res.message);
-        if (res.success) { document.getElementById('voucherForm').reset(); document.getElementById('vDate').valueAsDate = new Date(); loadVouchers(); loadFinancialReports(); }
-      });
-  }
-
-  function loadVouchers() {
-    fetch('/api/vouchers/list').then(r => r.json()).then(data => {
-      const tb = document.getElementById('voucherTableBody'); tb.innerHTML = '';
-      if (!data.length) { tb.innerHTML = `<tr><td colspan="6" class="text-center py-2 text-muted">尚無傳票紀錄</td></tr>`; return; }
-      data.forEach(v => {
-        tb.innerHTML += `<tr><td><strong>${v.voucher_no}</strong></td><td>${v.voucher_date}</td><td>${v.voucher_type}</td><td>${v.summary}</td><td class="text-end">$${v.total_amount.toLocaleString()}</td><td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteVoucher('${v.voucher_no}')">刪除</button></td></tr>`;
-      });
-    });
-  }
-
-  function deleteVoucher(vNo) {
-    if (confirm(`確定要刪除傳票【${vNo}】嗎？`)) {
-      fetch(`/api/vouchers/delete/${vNo}`, {method:'POST'}).then(r => r.json()).then(res => {
-        alert(res.message);
-        if (res.success) { loadVouchers(); loadFinancialReports(); }
-      });
+  fetch('/api/vouchers/save', {
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(res => {
+    alert(res.message);
+    if (res.success) { 
+      document.getElementById('voucherForm').reset(); 
+      const vDateEl = document.getElementById('vDate');
+      if (vDateEl) vDateEl.valueAsDate = new Date(); 
+      loadVouchers(); 
+      if (typeof loadFinancialReports === 'function') loadFinancialReports(); 
     }
+  })
+  .catch(err => console.error('儲存傳票失敗:', err));
+} // ❌ 原本多出來的右大括號已移除，函式邊界已修正正確
+
+// ==========================================
+// 3. 傳票模組
+// ==========================================
+function addVoucherItemRow() {
+  const tbody = document.getElementById('vItemsBody');
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="form-control form-control-sm v-code" placeholder="代號"></td>
+    <td><input type="text" class="form-control form-control-sm v-name" placeholder="名稱"></td>
+    <td><input type="number" class="form-control form-control-sm v-dr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
+    <td><input type="number" class="form-control form-control-sm v-cr" value="0" step="0.01" oninput="calcVoucherTotals()"></td>
+    <td class="text-center">
+      <button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('tr').remove(); calcVoucherTotals();">刪除</button>
+    </td>`;
+  tbody.appendChild(tr);
+}
+
+function calcVoucherTotals() {
+  let dr = 0, cr = 0;
+  document.querySelectorAll('.v-dr').forEach(el => { dr += parseFloat(el.value) || 0; });
+  document.querySelectorAll('.v-cr').forEach(el => { cr += parseFloat(el.value) || 0; });
+  
+  const vTotalDr = document.getElementById('vTotalDr');
+  const vTotalCr = document.getElementById('vTotalCr');
+  if (vTotalDr) vTotalDr.innerText = dr.toFixed(2);
+  if (vTotalCr) vTotalCr.innerText = cr.toFixed(2);
+}
+
+function handleVoucherSave(e) {
+  e.preventDefault();
+  let items = [];
+  let dr = 0, cr = 0;
+  
+  document.querySelectorAll('#vItemsBody tr').forEach(tr => {
+    const dVal = parseFloat(tr.querySelector('.v-dr').value) || 0;
+    const cVal = parseFloat(tr.querySelector('.v-cr').value) || 0;
+    dr += dVal; 
+    cr += cVal;
+    items.push({
+      account_code: tr.querySelector('.v-code').value.trim(),
+      account_name: tr.querySelector('.v-name').value.trim(),
+      debit: dVal, 
+      credit: cVal
+    });
+  });
+
+  // 判斷借貸平衡
+  if (Math.abs(dr - cr) > 0.01) {
+    return alert(`⚠️ 借貸不平衡！借方總計 (${dr.toFixed(2)}) 與貸方總計 (${cr.toFixed(2)}) 不符。`);
   }
 
-  function loadFinancialReports() {
-    fetch('/api/finance/reports').then(r => r.json()).then(res => {
-      const box = document.getElementById('finReportsContainer');
-      let html = '<h6 class="fw-bold text-success mb-2">⚖️ 會計科目試算表餘額：</h6><ul class="list-unstyled mb-0" style="font-size:12px;">';
-      if (!res.trial_balance.length) { html += '<li class="text-muted">尚無分錄資料</li>'; }
-      res.trial_balance.forEach(tb => {
-        html += `<li class="d-flex justify-content-between border-bottom py-1"><span>【${tb.account_code}】${tb.account_name}</span><strong>借:${tb.dr.toLocaleString()} / 貸:${tb.cr.toLocaleString()}</strong></li>`;
+  const payload = {
+    voucher_no: document.getElementById('vNo').value.trim(),
+    voucher_date: document.getElementById('vDate').value,
+    voucher_type: document.getElementById('vType').value,
+    summary: document.getElementById('vSummary').value.trim(),
+    preparer: document.getElementById('vPreparer').value,
+    items: items
+  };
+
+  fetch('/api/vouchers/save', {
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(res => {
+    alert(res.message);
+    if (res.success) { 
+      document.getElementById('voucherForm').reset(); 
+      const vDateEl = document.getElementById('vDate');
+      if (vDateEl) vDateEl.valueAsDate = new Date(); 
+      loadVouchers(); 
+      if (typeof loadFinancialReports === 'function') loadFinancialReports(); 
+    }
+  })
+  .catch(err => console.error('儲存傳票失敗:', err));
+}
+
+// 載入傳票紀錄
+function loadVouchers() {
+  fetch('/api/vouchers/list')
+    .then(r => r.json())
+    .then(data => {
+      const tb = document.getElementById('voucherTableBody'); 
+      if (!tb) return;
+      tb.innerHTML = '';
+      
+      if (!data || !data.length) { 
+        tb.innerHTML = `<tr><td colspan="6" class="text-center py-2 text-muted">尚無傳票紀錄</td></tr>`; 
+        return; 
+      }
+      
+      let htmlRows = '';
+      data.forEach(v => {
+        htmlRows += `<tr>
+          <td><strong>${v.voucher_no || ''}</strong></td>
+          <td>${v.voucher_date || ''}</td>
+          <td>${v.voucher_type || ''}</td>
+          <td>${v.summary || ''}</td>
+          <td class="text-end">$${(v.total_amount || 0).toLocaleString()}</td>
+          <td class="text-center">
+            <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteVoucher('${v.voucher_no}')">刪除</button>
+          </td>
+        </tr>`;
       });
+      tb.innerHTML = htmlRows;
+    })
+    .catch(err => console.error('載入傳票紀錄失敗:', err));
+}
+
+// 刪除傳票
+function deleteVoucher(vNo) {
+  if (confirm(`確定要刪除傳票【${vNo}】嗎？`)) {
+    fetch(`/api/vouchers/delete/${vNo}`, { method: 'POST' })
+      .then(r => r.json())
+      .then(res => {
+        alert(res.message);
+        if (res.success) { 
+          loadVouchers(); 
+          if (typeof loadFinancialReports === 'function') loadFinancialReports(); 
+        }
+      })
+      .catch(err => console.error('刪除傳票失敗:', err));
+  }
+}
+
+// 載入財務報表
+function loadFinancialReports() {
+  fetch('/api/finance/reports')
+    .then(r => r.json())
+    .then(res => {
+      const box = document.getElementById('finReportsContainer');
+      if (!box) return;
+      
+      let html = '<h6 class="fw-bold text-success mb-2">⚖️ 會計科目試算表餘額：</h6><ul class="list-unstyled mb-0" style="font-size:12px;">';
+      if (!res.trial_balance || !res.trial_balance.length) { 
+        html += '<li class="text-muted">尚無分錄資料</li>'; 
+      } else {
+        res.trial_balance.forEach(tb => {
+          html += `<li class="d-flex justify-content-between border-bottom py-1">
+            <span>【${tb.account_code || ''}】${tb.account_name || ''}</span>
+            <strong>借:${(tb.dr || 0).toLocaleString()} / 貸:${(tb.cr || 0).toLocaleString()}</strong>
+          </li>`;
+        });
+      }
       html += '</ul>';
       box.innerHTML = html;
-    });
-  }
+    })
+    .catch(err => console.error('載入財務報表失敗:', err));
+}
 
-  function openModal(type, no, name, amt) {
-    document.getElementById('modalType').value = type;
-    document.getElementById('modalNo').value = no;
-    document.getElementById('modalName').value = name;
-    document.getElementById('modalAmount').value = amt > 0 ? amt : '';
-    document.getElementById('modalDate').valueAsDate = new Date();
-    document.getElementById('modalRemarks').value = '';
-    document.getElementById('actionModal').style.display = 'flex';
-  }
-  function closeModal() { document.getElementById('actionModal').style.display = 'none'; }
+// 彈窗模組
+function openModal(type, no, name, amt) {
+  document.getElementById('modalType').value = type;
+  document.getElementById('modalNo').value = no;
+  document.getElementById('modalName').value = name;
+  document.getElementById('modalAmount').value = amt > 0 ? amt : '';
+  document.getElementById('modalDate').valueAsDate = new Date();
+  document.getElementById('modalRemarks').value = '';
+  document.getElementById('actionModal').style.display = 'flex';
+}
 
-  function handleModalSubmit(e) {
-    e.preventDefault();
-    const payload = {
-      pay_date: document.getElementById('modalDate').value, inbound_no: document.getElementById('modalNo').value,
-      vendor_name: document.getElementById('modalName').value, pay_amount: parseFloat(document.getElementById('modalAmount').value)||0,
-      pay_method: document.getElementById('modalMethod').value, remarks: document.getElementById('modalRemarks').value
-    };
-    fetch('/api/ap/pay', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
-      .then(r => r.json()).then(res => {
-        if(res.status === 'success') { alert("✔ 付款登記成功！"); closeModal(); loadAP(); }
-        else alert("失敗");
-      });
-  }
+function closeModal() { 
+  document.getElementById('actionModal').style.display = 'none'; 
+}
+
+function handleModalSubmit(e) {
+  e.preventDefault();
+  const payload = {
+    pay_date: document.getElementById('modalDate').value, 
+    inbound_no: document.getElementById('modalNo').value,
+    vendor_name: document.getElementById('modalName').value, 
+    pay_amount: parseFloat(document.getElementById('modalAmount').value) || 0,
+    pay_method: document.getElementById('modalMethod').value, 
+    remarks: document.getElementById('modalRemarks').value
+  };
+  
+  fetch('/api/ap/pay', {
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.status === 'success') { 
+      alert("✔ 付款登記成功！"); 
+      closeModal(); 
+      if (typeof loadAP === 'function') loadAP(); 
+    } else { 
+      alert(res.message || "失敗"); 
+    }
+  })
+  .catch(err => console.error('付款登記失敗:', err));
+}
 </script>
 </body>
 </html>
-
