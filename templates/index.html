@@ -2420,7 +2420,7 @@
     });
   }
 
- /// AP, AR, 財務載入
+ /// 會計與財務報表 (loadAP)
 function loadAP() {
   const fInput = document.getElementById('ap_filter_vendor').value.trim().toLowerCase();
   const fMonth = document.getElementById('ap_filter_month').value;
@@ -2432,7 +2432,6 @@ function loadAP() {
     .then(res => {
       const tb = document.getElementById('apTableBody'); 
       if (!tb) return;
-      
       tb.innerHTML = ''; // 清空原本的表格內容
       
       // 1. 檢查如果沒有資料，顯示「查無資料」的表格列
